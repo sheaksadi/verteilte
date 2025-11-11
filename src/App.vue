@@ -32,7 +32,12 @@ const flipCard = () => {
 };
 
 const checkSpelling = () => {
-  showResult.value = true;
+  if (showResult.value) {
+    showResult.value = false;
+    userInput.value = '';
+  } else {
+    showResult.value = true;
+  }
 };
 
 const nextCard = () => {
@@ -59,7 +64,7 @@ const prevCard = () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-background p-4 flex flex-col">
+  <main class="min-h-screen bg-background p-4 flex flex-col pb-24">
     <!-- Header -->
     <div class="text-center mb-6">
       <h1 class="text-2xl font-bold text-primary mb-2">Flashcards</h1>
@@ -70,60 +75,102 @@ const prevCard = () => {
 
     <!-- Flashcard -->
     <div class="flex-1 flex flex-col max-w-md mx-auto w-full gap-4">
-      <Card class="cursor-pointer transition-all hover:shadow-lg flex-1 flex items-center justify-center min-h-[300px]"
-        @click="flipCard">
-        <CardContent class="p-8 text-center">
-          <div class="text-4xl font-bold text-primary mb-2">
-            {{ isFlipped ? currentCard.back : currentCard.front }}
+      <div class="relative w-full h-[300px] perspective-1000">
+        <Card
+          class="w-full h-full absolute transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
+          :class="{ 'rotate-y-180': isFlipped }" @click="flipCard">
+          <!-- Front of the card -->
+          <div class="absolute w-full h-full backface-hidden flex items-center justify-center">
+            <CardContent class="p-8 text-center">
+              <div class="text-4xl font-bold text-primary mb-2">
+                {{ currentCard.front }}
+              </div>
+              <p class="text-sm text-muted-foreground mt-4">
+                Front - Tap to flip
+              </p>
+            </CardContent>
           </div>
-          <p class="text-sm text-muted-foreground mt-4">
-            {{ isFlipped ? 'Back' : 'Front' }} - Tap to flip
-          </p>
-        </CardContent>
-      </Card>
 
-      <!-- Navigation -->
-      <div class="flex gap-2">
-        <Button variant="outline" class="flex-1" @click="prevCard">
-          Previous
-        </Button>
-        <Button variant="outline" class="flex-1" @click="nextCard">
-          Next
-        </Button>
+          <!-- Back of the card -->
+          <div class="absolute w-full h-full backface-hidden rotate-y-180 flex items-center justify-center">
+            <CardContent class="p-8 text-center">
+              <div class="text-4xl font-bold text-primary mb-2">
+                {{ currentCard.back }}
+              </div>
+              <p class="text-sm text-muted-foreground mt-4">
+                Back - Tap to flip
+              </p>
+            </CardContent>
+          </div>
+        </Card>
       </div>
 
       <!-- Spelling Check Section -->
       <Card>
         <CardContent class="p-4">
-          <h2 class="font-semibold mb-3">Check Your Spelling</h2>
-          <p class="text-sm text-muted-foreground mb-3">
-            Type: <span class="font-semibold text-foreground">{{ currentCard.front }}</span>
-          </p>
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="font-semibold">Practice Spelling</h2>
+            <span class="text-xs text-muted-foreground">{{ currentCard.front }}</span>
+          </div>
 
           <div class="space-y-3">
-            <Input v-model="userInput" placeholder="Type your answer..." @keyup.enter="checkSpelling" :class="{
-              'border-green-500': showResult && isCorrect,
-              'border-red-500': showResult && !isCorrect
-            }" />
+            <div class="relative">
+              <Input v-model="userInput" placeholder="Type the translation..."
+                @keyup.enter="userInput.trim() && checkSpelling()" class="text-lg pr-10" :class="{
+                  'border-green-500 focus-visible:ring-green-500': showResult && isCorrect,
+                  'border-red-500 focus-visible:ring-red-500': showResult && !isCorrect
+                }" />
+              <div v-if="showResult" class="absolute right-3 top-1/2 -translate-y-1/2 text-xl">
+                {{ isCorrect ? '✓' : '✗' }}
+              </div>
+            </div>
 
-            <Button class="w-full" @click="checkSpelling" :disabled="!userInput.trim()">
-              Check
+            <Button class="w-full" @click="checkSpelling" :disabled="!userInput.trim()" variant="default">
+              {{ showResult ? 'Try Again' : 'Check Answer' }}
             </Button>
 
-            <div v-if="showResult" class="text-center p-3 rounded-lg" :class="{
-              'bg-green-50 dark:bg-green-950 text-green-700 dark:text-green-300': isCorrect,
-              'bg-red-50 dark:bg-red-950 text-red-700 dark:text-red-300': !isCorrect
-            }">
-              <p class="font-semibold mb-1">
-                {{ isCorrect ? '✓ Correct!' : '✗ Incorrect' }}
-              </p>
-              <p v-if="!isCorrect" class="text-sm">
-                Correct answer: <span class="font-bold">{{ currentCard.back }}</span>
+            <div v-if="showResult && !isCorrect" class="text-center p-3 rounded-lg bg-muted">
+              <p class="text-sm text-muted-foreground">
+                Correct answer: <span class="font-semibold text-foreground">{{ currentCard.back }}</span>
               </p>
             </div>
           </div>
         </CardContent>
       </Card>
     </div>
+
+    <!-- Navigation at bottom -->
+    <div class="fixed bottom-0 left-0 right-0 p-4 bg-background border-t">
+      <div class="max-w-md mx-auto grid grid-cols-3 gap-3">
+        <Button variant="outline" class="w-full" @click="nextCard">
+          Bad
+        </Button>
+        <Button variant="outline" class="w-full" @click="nextCard">
+          Good
+        </Button>
+        <Button variant="outline" class="w-full" @click="nextCard">
+          Great
+        </Button>
+      </div>
+    </div>
   </main>
 </template>
+
+<style>
+.perspective-1000 {
+  perspective: 1000px;
+}
+
+.transform-style-preserve-3d {
+  transform-style: preserve-3d;
+}
+
+.rotate-y-180 {
+  transform: rotateY(180deg);
+}
+
+.backface-hidden {
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+}
+</style>
