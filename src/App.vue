@@ -4,6 +4,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Moon, Sun, Edit3, Plus, X, Check } from 'lucide-vue-next';
+import { loadDictionary, fuzzySearch, type DictionaryEntry, type SearchResult } from '@/lib/dictionary';
 
 const words = ref([
   { original: 'Hallo', translation: 'Hello', article: '' },
@@ -25,6 +26,9 @@ const showEditView = ref(false);
 const newWordOriginal = ref('');
 const newWordTranslation = ref('');
 const newWordArticle = ref('');
+const dictionary = ref<DictionaryEntry[]>([]);
+const suggestions = ref<SearchResult[]>([]);
+const showSuggestions = ref(false);
 
 const currentCard = computed(() => words.value[currentIndex.value]);
 
@@ -197,6 +201,30 @@ const toggleDarkMode = () => {
   }
 };
 
+const updateSuggestions = () => {
+  const searchTerm = newWordOriginal.value.trim();
+  if (searchTerm.length >= 2 && dictionary.value.length > 0) {
+    suggestions.value = fuzzySearch(dictionary.value, searchTerm, 0.5).slice(0, 5);
+    showSuggestions.value = suggestions.value.length > 0;
+  } else {
+    suggestions.value = [];
+    showSuggestions.value = false;
+  }
+};
+
+const selectSuggestion = (suggestion: SearchResult) => {
+  newWordOriginal.value = suggestion.word;
+  newWordTranslation.value = suggestion.meanings?.[0] || '';
+  newWordArticle.value = suggestion.gender === 'masc' ? 'der' : 
+                        suggestion.gender === 'fem' ? 'die' : 
+                        suggestion.gender === 'neut' ? 'das' : '';
+  showSuggestions.value = false;
+  nextTick(() => {
+    const translationInput = document.getElementById('newWordTranslation') as HTMLInputElement;
+    if (translationInput) translationInput.focus();
+  });
+};
+
 const addWord = () => {
   if (newWordOriginal.value.trim() && newWordTranslation.value.trim()) {
     words.value.push({
@@ -207,6 +235,7 @@ const addWord = () => {
     newWordOriginal.value = '';
     newWordTranslation.value = '';
     newWordArticle.value = '';
+    showSuggestions.value = false;
     // Focus back on original input for quick entry
     nextTick(() => {
       const originalInput = document.getElementById('newWordOriginal') as HTMLInputElement;
@@ -232,7 +261,7 @@ const toggleEditView = () => {
   }
 };
 
-onMounted(() => {
+onMounted(async () => {
   // Check system preference for dark mode
   if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
     isDarkMode.value = true;
@@ -241,6 +270,16 @@ onMounted(() => {
   
   // Initialize input for first card
   initializeInput();
+  
+  // Load dictionary asynchronously (don't block UI)
+  loadDictionary()
+    .then(data => {
+      dictionary.value = data;
+      console.log(`Dictionary loaded: ${data.length} entries`);
+    })
+    .catch(err => {
+      console.warn('Dictionary not loaded, suggestions disabled:', err);
+    });
 });
 
 // Watch for card changes to reinitialize input
@@ -265,13 +304,41 @@ watch(currentIndex, () => {
         <CardContent class="p-4">
           <h2 class="font-semibold mb-3">Add New Word</h2>
           <div class="space-y-3">
-            <Input 
-              id="newWordOriginal"
-              v-model="newWordOriginal" 
-              placeholder="German word (e.g., Haus)" 
-              @keyup.enter="document.getElementById('newWordTranslation')?.focus()"
-              class="text-lg"
-            />
+            <div class="relative">
+              <Input 
+                id="newWordOriginal"
+                v-model="newWordOriginal" 
+                placeholder="German word (e.g., Haus)" 
+                @input="updateSuggestions"
+                @keyup.enter="document.getElementById('newWordTranslation')?.focus()"
+                @blur="setTimeout(() => showSuggestions = false, 200)"
+                @focus="updateSuggestions"
+                class="text-lg"
+              />
+              <!-- Suggestions Dropdown -->
+              <div 
+                v-if="showSuggestions && suggestions.length > 0"
+                class="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto"
+              >
+                <button
+                  v-for="(suggestion, idx) in suggestions"
+                  :key="idx"
+                  @click="selectSuggestion(suggestion)"
+                  class="w-full px-3 py-2 text-left hover:bg-accent transition-colors border-b last:border-b-0"
+                >
+                  <div class="font-semibold">
+                    <span v-if="suggestion.gender" class="text-xs text-muted-foreground mr-1">
+                      {{ suggestion.gender === 'masc' ? 'der' : suggestion.gender === 'fem' ? 'die' : suggestion.gender === 'neut' ? 'das' : '' }}
+                    </span>
+                    {{ suggestion.word }}
+                    <span class="text-xs text-muted-foreground ml-2">({{ (suggestion.score * 100).toFixed(0) }}%)</span>
+                  </div>
+                  <div class="text-sm text-muted-foreground truncate">
+                    {{ suggestion.meanings?.[0] || 'No translation' }}
+                  </div>
+                </button>
+              </div>
+            </div>
             <Input 
               id="newWordTranslation"
               v-model="newWordTranslation" 
