@@ -3,15 +3,16 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Moon, Sun } from 'lucide-vue-next';
+import { Moon, Sun, Edit3, Plus, X, Check } from 'lucide-vue-next';
 
 const words = ref([
-  { front: 'Hello', back: 'Hola' },
-  { front: 'Goodbye', back: 'Adiós' },
-  { front: 'Thank you', back: 'Gracias' },
-  { front: 'Please', back: 'Por favor' },
-  { front: 'Yes', back: 'Sí' },
-  { front: 'No', back: 'No' },
+  { original: 'Hallo', translation: 'Hello', article: '' },
+  { original: 'Tschüss', translation: 'Goodbye', article: '' },
+  { original: 'Danke', translation: 'Thank you', article: '' },
+  { original: 'Bitte', translation: 'Please', article: '' },
+  { original: 'Haus', translation: 'House', article: 'das' },
+  { original: 'Katze', translation: 'Cat', article: 'die' },
+  { original: 'Hund', translation: 'Dog', article: 'der' },
 ]);
 
 const currentIndex = ref(0);
@@ -20,16 +21,20 @@ const userInput = ref<string[]>([]);
 const showResult = ref(false);
 const isDarkMode = ref(false);
 const inputRefs = ref<HTMLInputElement[]>([]);
+const showEditView = ref(false);
+const newWordOriginal = ref('');
+const newWordTranslation = ref('');
+const newWordArticle = ref('');
 
 const currentCard = computed(() => words.value[currentIndex.value]);
 
-const answerLength = computed(() => currentCard.value.back.length);
+const answerLength = computed(() => currentCard.value.original.length);
 
 const userInputString = computed(() => userInput.value.join(''));
 
 const isCorrect = computed(() => {
   if (!showResult.value) return null;
-  return userInputString.value.toLowerCase().trim() === currentCard.value.back.toLowerCase().trim();
+  return userInputString.value.toLowerCase().trim() === currentCard.value.original.toLowerCase().trim();
 });
 
 const initializeInput = () => {
@@ -136,23 +141,51 @@ const flipCard = () => {
 
 
 const nextCard = () => {
-  if (currentIndex.value < words.value.length - 1) {
-    currentIndex.value++;
+  // First flip back to front if currently flipped
+  if (isFlipped.value) {
+    isFlipped.value = false;
+    // Wait for flip animation to complete before changing card
+    setTimeout(() => {
+      if (currentIndex.value < words.value.length - 1) {
+        currentIndex.value++;
+      } else {
+        currentIndex.value = 0;
+      }
+      initializeInput();
+    }, 700); // Match the transition duration
   } else {
-    currentIndex.value = 0;
+    // If already on front, just move to next card
+    if (currentIndex.value < words.value.length - 1) {
+      currentIndex.value++;
+    } else {
+      currentIndex.value = 0;
+    }
+    initializeInput();
   }
-  isFlipped.value = false;
-  initializeInput();
 };
 
 const prevCard = () => {
-  if (currentIndex.value > 0) {
-    currentIndex.value--;
+  // First flip back to front if currently flipped
+  if (isFlipped.value) {
+    isFlipped.value = false;
+    // Wait for flip animation to complete before changing card
+    setTimeout(() => {
+      if (currentIndex.value > 0) {
+        currentIndex.value--;
+      } else {
+        currentIndex.value = words.value.length - 1;
+      }
+      initializeInput();
+    }, 700); // Match the transition duration
   } else {
-    currentIndex.value = words.value.length - 1;
+    // If already on front, just move to previous card
+    if (currentIndex.value > 0) {
+      currentIndex.value--;
+    } else {
+      currentIndex.value = words.value.length - 1;
+    }
+    initializeInput();
   }
-  isFlipped.value = false;
-  initializeInput();
 };
 
 const toggleDarkMode = () => {
@@ -161,6 +194,41 @@ const toggleDarkMode = () => {
     document.documentElement.classList.add('dark');
   } else {
     document.documentElement.classList.remove('dark');
+  }
+};
+
+const addWord = () => {
+  if (newWordOriginal.value.trim() && newWordTranslation.value.trim()) {
+    words.value.push({
+      original: newWordOriginal.value.trim(),
+      translation: newWordTranslation.value.trim(),
+      article: newWordArticle.value.trim()
+    });
+    newWordOriginal.value = '';
+    newWordTranslation.value = '';
+    newWordArticle.value = '';
+    // Focus back on original input for quick entry
+    nextTick(() => {
+      const originalInput = document.getElementById('newWordOriginal') as HTMLInputElement;
+      if (originalInput) originalInput.focus();
+    });
+  }
+};
+
+const deleteWord = (index: number) => {
+  words.value.splice(index, 1);
+  if (currentIndex.value >= words.value.length) {
+    currentIndex.value = Math.max(0, words.value.length - 1);
+  }
+};
+
+const toggleEditView = () => {
+  showEditView.value = !showEditView.value;
+  if (showEditView.value) {
+    nextTick(() => {
+      const originalInput = document.getElementById('newWordOriginal') as HTMLInputElement;
+      if (originalInput) originalInput.focus();
+    });
   }
 };
 
@@ -183,14 +251,93 @@ watch(currentIndex, () => {
 
 <template>
   <main class="min-h-screen bg-background p-4 flex flex-col transition-colors duration-300">
+    <!-- Edit View -->
+    <div v-if="showEditView" class="max-w-2xl mx-auto w-full">
+      <div class="flex items-center justify-between mb-6">
+        <h1 class="text-2xl font-bold text-primary">Manage Words</h1>
+        <Button variant="outline" size="icon" @click="toggleEditView" class="rounded-full">
+          <X class="h-5 w-5" />
+        </Button>
+      </div>
+
+      <!-- Quick Add Form -->
+      <Card class="mb-6">
+        <CardContent class="p-4">
+          <h2 class="font-semibold mb-3">Add New Word</h2>
+          <div class="space-y-3">
+            <Input 
+              id="newWordOriginal"
+              v-model="newWordOriginal" 
+              placeholder="German word (e.g., Haus)" 
+              @keyup.enter="document.getElementById('newWordTranslation')?.focus()"
+              class="text-lg"
+            />
+            <Input 
+              id="newWordTranslation"
+              v-model="newWordTranslation" 
+              placeholder="English translation (e.g., House)" 
+              @keyup.enter="document.getElementById('newWordArticle')?.focus()"
+              class="text-lg"
+            />
+            <Input 
+              id="newWordArticle"
+              v-model="newWordArticle" 
+              placeholder="Article (der/die/das - optional)" 
+              @keyup.enter="addWord()"
+              class="text-lg"
+            />
+            <Button 
+              @click="addWord" 
+              :disabled="!newWordOriginal.trim() || !newWordTranslation.trim()"
+              class="w-full dark:bg-purple-500 dark:hover:bg-purple-600"
+            >
+              <Plus class="h-4 w-4 mr-2" /> Add Word
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <!-- Words List -->
+      <div class="space-y-2">
+        <h2 class="font-semibold text-sm text-muted-foreground mb-2">
+          {{ words.length }} word{{ words.length !== 1 ? 's' : '' }}
+        </h2>
+        <Card v-for="(word, index) in words" :key="index" class="group">
+          <CardContent class="p-3 flex items-center justify-between">
+            <div class="flex-1">
+              <div class="font-semibold">
+                <span v-if="word.article" class="text-muted-foreground text-sm">{{ word.article }} </span>{{ word.original }}
+              </div>
+              <div class="text-sm text-muted-foreground">{{ word.translation }}</div>
+            </div>
+            <Button 
+              variant="ghost" 
+              size="icon" 
+              @click="deleteWord(index)"
+              class="opacity-50 group-hover:opacity-100 transition-opacity"
+            >
+              <X class="h-4 w-4" />
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    </div>
+
+    <!-- Practice View -->
+    <div v-else>
     <!-- Header -->
     <div class="text-center mb-6">
       <div class="flex items-center justify-between max-w-md mx-auto mb-4">
         <h1 class="text-2xl font-bold text-primary">Flashcards</h1>
-        <Button variant="outline" size="icon" @click="toggleDarkMode" class="rounded-full">
-          <Sun v-if="isDarkMode" class="h-5 w-5" />
-          <Moon v-else class="h-5 w-5" />
-        </Button>
+        <div class="flex gap-2">
+          <Button variant="outline" size="icon" @click="toggleEditView" class="rounded-full">
+            <Edit3 class="h-5 w-5" />
+          </Button>
+          <Button variant="outline" size="icon" @click="toggleDarkMode" class="rounded-full">
+            <Sun v-if="isDarkMode" class="h-5 w-5" />
+            <Moon v-else class="h-5 w-5" />
+          </Button>
+        </div>
       </div>
       <p class="text-sm text-muted-foreground">
         Card {{ currentIndex + 1 }} of {{ words.length }}
@@ -207,7 +354,10 @@ watch(currentIndex, () => {
           <div class="absolute w-full h-full backface-hidden flex flex-col">
             <CardContent class="p-8 text-center flex-1 flex flex-col justify-center">
               <div class="text-4xl font-bold text-primary dark:text-purple-400 mb-6 transition-all duration-300">
-                {{ currentCard.front }}
+                {{ currentCard.translation }}
+              </div>
+              <div v-if="currentCard.article" class="text-sm text-muted-foreground mb-4">
+                Article: {{ currentCard.article }}
               </div>
               
               <div class="space-y-3">
@@ -246,7 +396,10 @@ watch(currentIndex, () => {
           <div class="absolute w-full h-full backface-hidden rotate-y-180 flex flex-col">
             <CardContent class="p-8 text-center flex-1 flex flex-col justify-center">
               <div class="text-4xl font-bold text-primary dark:text-purple-400 mb-4 transition-all duration-300">
-                {{ currentCard.back }}
+                {{ currentCard.original }}
+              </div>
+              <div v-if="currentCard.article" class="text-lg text-muted-foreground mb-4">
+                {{ currentCard.article }}
               </div>
               
               <div v-if="userInputString.trim()" class="mt-4 p-4 rounded-lg" :class="{
@@ -287,6 +440,7 @@ watch(currentIndex, () => {
           Great
         </Button>
       </div>
+    </div>
     </div>
   </main>
 </template>
