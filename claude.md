@@ -4,7 +4,24 @@
 
 ### Bug Fixes & Improvements
 
-1. **Improved English Dictionary Search - Phrase Matching**
+1. **Added Enter Key for Next Button**
+   - Press **Enter** to move to next card when you got the answer wrong
+   - Works the same as clicking the "Next" button
+   - Makes reviewing faster and more convenient
+
+2. **Fixed Flip Interruption Issue**
+   - Keyboard input is now blocked while card is checking/flipping
+   - Prevents accidental typing from canceling the flip animation
+   - Ensures you can't interfere with the review process
+
+2. **Smart Auto-Rating System**
+   - ✅ **Correct spelling** → Auto-rated as "Great" (+2 score), moves to next card automatically
+   - ❌ **Incorrect spelling** → Shows answer, Bad/Good/Great buttons disabled
+   - **"Next" button appears** when incorrect - click to continue (auto-rated as "Bad")
+   - This ensures you review the correct answer before moving on
+   - Maximizes learning efficiency
+
+2. **Improved English Dictionary Search - Phrase Matching**
    - Queries **200 results** from database (balanced performance)
    - Splits meanings by comma into separate phrases
    - Matches **each phrase** individually against your search

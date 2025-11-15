@@ -162,6 +162,13 @@ const initializeInput = () => {
 };
 
 const handleInput = (index: number, event: Event) => {
+  // Don't allow input if we're in the middle of checking/flipping
+  if (showResult.value) {
+    const target = event.target as HTMLInputElement;
+    target.value = '';
+    return;
+  }
+  
   const target = event.target as HTMLInputElement;
   const value = target.value;
   
@@ -201,26 +208,33 @@ const handleInput = (index: number, event: Event) => {
       
       showResult.value = true;
       
-      // Then trigger flip and auto-advance
+      // Then trigger flip
       setTimeout(() => {
         target.blur();
         flipCard();
-        // If correct, automatically rate as "good" and move to next card
-        setTimeout(() => {
-          console.log('[Debug] Using stored result:', isAnswerCorrect);
-          if (isAnswerCorrect) {
-            console.log('[Debug] Correct! Moving to next card...');
-            nextCard('good');
-          } else {
-            console.log('[Debug] Incorrect, not auto-advancing');
-          }
-        }, 1000);
+        
+        // If correct, auto-rate as great and move to next
+        if (isAnswerCorrect) {
+          setTimeout(() => {
+            console.log('[Debug] Correct! Auto-rating as great');
+            nextCard('great');
+          }, 1000);
+        } else {
+          // If incorrect, just show the answer and wait for user to click next
+          console.log('[Debug] Incorrect! Waiting for user to click next');
+        }
       }, 200);
     }
   }
 };
 
 const handleKeydown = (index: number, event: KeyboardEvent) => {
+  // Don't allow any keyboard input if we're checking/showing result
+  if (showResult.value) {
+    event.preventDefault();
+    return;
+  }
+  
   // Handle backspace
   if (event.key === 'Backspace') {
     if (!userInput.value[index] && index > 0) {
@@ -236,6 +250,12 @@ const handleKeydown = (index: number, event: KeyboardEvent) => {
 };
 
 const handlePaste = (event: ClipboardEvent) => {
+  // Don't allow paste if we're checking/showing result
+  if (showResult.value) {
+    event.preventDefault();
+    return;
+  }
+  
   event.preventDefault();
   const pastedText = event.clipboardData?.getData('text') || '';
   const chars = pastedText.slice(0, answerLength.value).split('');
@@ -284,6 +304,11 @@ const flipCard = () => {
 };
 
 
+
+const nextCardAfterIncorrect = () => {
+  // Called when user clicks "Next" after getting answer wrong
+  nextCard('bad');
+};
 
 const nextCard = async (rating: 'bad' | 'good' | 'great') => {
   if (!currentCard.value?.id) return;
@@ -542,6 +567,14 @@ onMounted(async () => {
     isDarkMode.value = true;
     document.documentElement.classList.add('dark');
   }
+  
+  // Add global keyboard listener for Enter key
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && showResult.value && !isCorrect.value) {
+      // Enter key triggers Next button when answer is incorrect
+      nextCardAfterIncorrect();
+    }
+  });
   
   // Load saved words from database
   try {
@@ -901,16 +934,39 @@ watch(currentIndex, () => {
       </div>
 
       <!-- Navigation directly under card -->
-      <div class="grid grid-cols-3 gap-3">
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('bad')">
+      <div v-if="showResult && !isCorrect" class="flex justify-center">
+        <Button 
+          class="w-full max-w-md dark:bg-purple-500 dark:hover:bg-purple-600" 
+          @click="nextCardAfterIncorrect"
+        >
+          Next
+        </Button>
+      </div>
+      <div v-else class="grid grid-cols-3 gap-3">
+        <Button 
+          variant="outline" 
+          class="w-full flex flex-col gap-0.5 h-auto py-2" 
+          @click="nextCard('bad')"
+          :disabled="showResult && !isCorrect"
+        >
           <span class="font-semibold">Bad</span>
           <span class="text-xs text-muted-foreground">{{ badInterval }}</span>
         </Button>
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('good')">
+        <Button 
+          variant="outline" 
+          class="w-full flex flex-col gap-0.5 h-auto py-2" 
+          @click="nextCard('good')"
+          :disabled="showResult && !isCorrect"
+        >
           <span class="font-semibold">Good</span>
           <span class="text-xs text-muted-foreground">{{ goodInterval }}</span>
         </Button>
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('great')">
+        <Button 
+          variant="outline" 
+          class="w-full flex flex-col gap-0.5 h-auto py-2" 
+          @click="nextCard('great')"
+          :disabled="showResult && !isCorrect"
+        >
           <span class="font-semibold">Great</span>
           <span class="text-xs text-muted-foreground">{{ greatInterval }}</span>
         </Button>
