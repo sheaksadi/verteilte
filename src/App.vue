@@ -3,9 +3,10 @@ import { ref, computed, onMounted, nextTick, watch } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Moon, Sun, Edit3, Plus, X, Check } from 'lucide-vue-next';
+import { Moon, Sun, Edit3, Plus, X, Check, Download, Upload, Copy } from 'lucide-vue-next';
 import { initializeDictionary, searchDictionary, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, type Word } from '@/lib/database';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, exportWords, importWords, type Word } from '@/lib/database';
+import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 const words = ref<Word[]>([]);
 
@@ -23,6 +24,10 @@ const suggestions = ref<DictionaryEntry[]>([]);
 const showSuggestions = ref(false);
 const isLoading = ref(true);
 const dictionaryInfo = ref<DictionaryInfo | null>(null);
+const importText = ref('');
+const showImportDialog = ref(false);
+const importResult = ref<{ added: number; skipped: number; errors: string[] } | null>(null);
+const exportSuccess = ref(false);
 
 // Debug info
 const debugInfo = ref({
@@ -262,10 +267,15 @@ const addWord = async () => {
     newWordTranslation.value = '';
     newWordArticle.value = '';
     showSuggestions.value = false;
-    // Focus back on original input for quick entry
+    
+    // Reinitialize input boxes for the current card
     nextTick(() => {
-      const originalInput = document.getElementById('newWordOriginal') as HTMLInputElement;
-      if (originalInput) originalInput.focus();
+      initializeInput();
+      // Then focus back on original input for quick entry if still in edit view
+      if (showEditView.value) {
+        const originalInput = document.getElementById('newWordOriginal') as HTMLInputElement;
+        if (originalInput) originalInput.focus();
+      }
     });
   }
 };
@@ -289,6 +299,66 @@ const toggleEditView = () => {
       if (originalInput) originalInput.focus();
     });
   }
+};
+
+const handleExport = async () => {
+  try {
+    const exportedText = await exportWords();
+    
+    // Check if we're in Tauri
+    const isTauri = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
+    
+    if (isTauri) {
+      // Use clipboard in Tauri
+      await writeText(exportedText);
+      exportSuccess.value = true;
+      setTimeout(() => exportSuccess.value = false, 3000);
+    } else {
+      // Use browser download
+      const blob = new Blob([exportedText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `verteilte-words-${new Date().toISOString().split('T')[0]}.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
+  } catch (error) {
+    console.error('Export failed:', error);
+    alert('Export failed: ' + error);
+  }
+};
+
+const openImportDialog = () => {
+  importText.value = '';
+  importResult.value = null;
+  showImportDialog.value = true;
+};
+
+const handleImport = async () => {
+  if (!importText.value.trim()) {
+    return;
+  }
+  
+  const result = await importWords(importText.value);
+  importResult.value = result;
+  
+  // Reload words
+  words.value = await getAllWords();
+  debugInfo.value.dbWordsCount = words.value.length;
+  
+  // Reinitialize if we have words
+  if (words.value.length > 0) {
+    nextTick(() => initializeInput());
+  }
+};
+
+const closeImportDialog = () => {
+  showImportDialog.value = false;
+  importText.value = '';
+  importResult.value = null;
 };
 
 onMounted(async () => {
@@ -501,6 +571,19 @@ watch(currentIndex, () => {
       <div class="flex items-center justify-between max-w-md mx-auto mb-4">
         <h1 class="text-2xl font-bold text-primary">Flashcards</h1>
         <div class="flex gap-2">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            @click="handleExport" 
+            class="rounded-full relative" 
+            :title="exportSuccess ? 'Copied to clipboard!' : 'Export words to clipboard'"
+          >
+            <Check v-if="exportSuccess" class="h-5 w-5 text-green-600" />
+            <Copy v-else class="h-5 w-5" />
+          </Button>
+          <Button variant="outline" size="icon" @click="openImportDialog" class="rounded-full" title="Import words">
+            <Upload class="h-5 w-5" />
+          </Button>
           <Button variant="outline" size="icon" @click="toggleEditView" class="rounded-full">
             <Edit3 class="h-5 w-5" />
           </Button>
@@ -634,6 +717,65 @@ watch(currentIndex, () => {
       </Card>
     </div>
     </div>
+    </div>
+    
+    <!-- Import Dialog -->
+    <div v-if="showImportDialog" class="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50" @click.self="closeImportDialog">
+      <Card class="w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <CardContent class="p-6">
+          <div class="flex items-center justify-between mb-4">
+            <h2 class="text-2xl font-bold">Import Words</h2>
+            <Button variant="ghost" size="icon" @click="closeImportDialog">
+              <X class="h-5 w-5" />
+            </Button>
+          </div>
+          
+          <div class="space-y-4">
+            <div>
+              <p class="text-sm text-muted-foreground mb-2">
+                Paste your words below. Format: <span class="font-mono">original | translation | article</span>
+              </p>
+              <p class="text-sm text-muted-foreground mb-3">
+                Lines starting with # are comments. Example:<br>
+                <span class="font-mono text-xs">Haus | House | das</span><br>
+                <span class="font-mono text-xs">Katze | Cat | die</span>
+              </p>
+              <textarea
+                v-model="importText"
+                class="w-full h-64 p-3 rounded-md border border-input bg-background font-mono text-sm resize-none"
+                placeholder="# Paste your words here&#10;Haus | House | das&#10;Katze | Cat | die&#10;Hund | Dog | der"
+              ></textarea>
+            </div>
+            
+            <div v-if="importResult" class="rounded-lg border p-4 space-y-2">
+              <p class="font-semibold">Import Results:</p>
+              <div class="text-sm space-y-1">
+                <p class="text-green-600 dark:text-green-400">✓ Added: {{ importResult.added }} words</p>
+                <p class="text-yellow-600 dark:text-yellow-400">⊘ Skipped: {{ importResult.skipped }} (already exist)</p>
+                <p v-if="importResult.errors.length > 0" class="text-red-600 dark:text-red-400">
+                  ✗ Errors: {{ importResult.errors.length }}
+                </p>
+              </div>
+              <div v-if="importResult.errors.length > 0" class="mt-2 max-h-32 overflow-y-auto">
+                <p class="text-xs font-semibold mb-1">Error details:</p>
+                <div class="text-xs text-red-600 dark:text-red-400 space-y-0.5 font-mono">
+                  <p v-for="(error, i) in importResult.errors" :key="i">{{ error }}</p>
+                </div>
+              </div>
+            </div>
+            
+            <div class="flex gap-3">
+              <Button @click="handleImport" class="flex-1" :disabled="!importText.trim()">
+                <Upload class="h-4 w-4 mr-2" />
+                Import
+              </Button>
+              <Button variant="outline" @click="closeImportDialog">
+                Close
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   </main>
 </template>
