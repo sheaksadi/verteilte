@@ -5,21 +5,17 @@ export interface Word {
   original: string;
   translation: string;
   article: string;
+  score: number;
+  createdAt: number;
+  lastReviewedAt: number;
+  nextReviewAt: number;
 }
 
 let db: Database | null = null;
 let inMemoryWords: Word[] = [];
 let nextId = 1;
 
-const DEFAULT_WORDS = [
-  { original: 'Hallo', translation: 'Hello', article: '' },
-  { original: 'Tschüss', translation: 'Goodbye', article: '' },
-  { original: 'Danke', translation: 'Thank you', article: '' },
-  { original: 'Bitte', translation: 'Please', article: '' },
-  { original: 'Haus', translation: 'House', article: 'das' },
-  { original: 'Katze', translation: 'Cat', article: 'die' },
-  { original: 'Hund', translation: 'Dog', article: 'der' },
-];
+const DEFAULT_WORDS: Word[] = [];
 
 function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -27,14 +23,8 @@ function isTauri(): boolean {
 
 export async function initDatabase(): Promise<Database | null> {
   if (!isTauri()) {
-    // In browser mode, use in-memory storage with default words
-    if (inMemoryWords.length === 0) {
-      inMemoryWords = DEFAULT_WORDS.map((word, index) => ({
-        ...word,
-        id: index + 1
-      }));
-      nextId = DEFAULT_WORDS.length + 1;
-    }
+    // In browser mode, use in-memory storage
+    // No default words - start empty
     return null;
   }
 
@@ -43,21 +33,6 @@ export async function initDatabase(): Promise<Database | null> {
       console.log('Attempting to load SQLite database...');
       db = await Database.load('sqlite:words.db');
       console.log('Database loaded successfully');
-      
-      // Check if database is empty and seed with default words
-      const count = await db.select<Array<{ count: number }>>('SELECT COUNT(*) as count FROM words');
-      console.log('Word count in database:', count[0].count);
-      
-      if (count[0].count === 0) {
-        console.log('Database is empty, seeding with default words...');
-        for (const word of DEFAULT_WORDS) {
-          await db.execute(
-            'INSERT INTO words (original, translation, article) VALUES ($1, $2, $3)',
-            [word.original, word.translation, word.article]
-          );
-        }
-        console.log('Seeded database with default words');
-      }
     } catch (error) {
       console.error('Error initializing database:', error);
       throw error;
@@ -70,27 +45,43 @@ export async function getAllWords(): Promise<Word[]> {
   const database = await initDatabase();
   
   if (!database) {
-    // In-memory mode
-    return [...inMemoryWords];
+    // In-memory mode - sort by nextReviewAt
+    return [...inMemoryWords].sort((a, b) => a.nextReviewAt - b.nextReviewAt);
   }
   
-  const result = await database.select<Word[]>('SELECT * FROM words ORDER BY created_at DESC');
+  const result = await database.select<Word[]>('SELECT * FROM words ORDER BY nextReviewAt ASC');
   return result;
 }
 
 export async function addWord(word: Omit<Word, 'id'>): Promise<number> {
   const database = await initDatabase();
+  const now = Date.now();
   
   if (!database) {
     // In-memory mode
-    const newWord: Word = { ...word, id: nextId++ };
+    const newWord: Word = { 
+      ...word, 
+      id: nextId++,
+      score: word.score ?? 0,
+      createdAt: word.createdAt ?? now,
+      lastReviewedAt: word.lastReviewedAt ?? 0,
+      nextReviewAt: word.nextReviewAt ?? now
+    };
     inMemoryWords.unshift(newWord);
     return newWord.id!;
   }
   
   const result = await database.execute(
-    'INSERT INTO words (original, translation, article) VALUES ($1, $2, $3)',
-    [word.original, word.translation, word.article || '']
+    'INSERT INTO words (original, translation, article, score, createdAt, lastReviewedAt, nextReviewAt) VALUES ($1, $2, $3, $4, $5, $6, $7)',
+    [
+      word.original, 
+      word.translation, 
+      word.article || '', 
+      word.score ?? 0, 
+      word.createdAt ?? now, 
+      word.lastReviewedAt ?? 0, 
+      word.nextReviewAt ?? now
+    ]
   );
   return result.lastInsertId;
 }
@@ -108,6 +99,55 @@ export async function deleteWord(id: number): Promise<void> {
   }
   
   await database.execute('DELETE FROM words WHERE id = $1', [id]);
+}
+
+// Calculate next review time based on score (exponential backoff)
+// Bad: -1, Good: 0, Great: +1
+// Using improved spaced repetition intervals:
+// - Bad (again): 10 minutes (reset)
+// - Good: 2.5x multiplier, starting at 1 hour
+// - Great: 3x multiplier, starting at 1 hour
+function calculateNextReview(score: number): number {
+  const now = Date.now();
+  
+  // Score 0 means this is first review or was marked bad
+  if (score === 0) {
+    return now + 10 * 60 * 1000; // 10 minutes
+  }
+  
+  // For positive scores, use exponential growth
+  const baseInterval = 60 * 60 * 1000; // 1 hour base
+  const interval = baseInterval * Math.pow(2.5, score - 1);
+  return now + interval;
+}
+
+// Update word score and review times
+export async function updateWordReview(id: number, scoreChange: number): Promise<void> {
+  const database = await initDatabase();
+  const now = Date.now();
+  
+  if (!database) {
+    // In-memory mode
+    const word = inMemoryWords.find(w => w.id === id);
+    if (word) {
+      word.score = Math.max(0, word.score + scoreChange);
+      word.lastReviewedAt = now;
+      word.nextReviewAt = calculateNextReview(word.score);
+    }
+    return;
+  }
+  
+  // Get current score
+  const result = await database.select<Array<{ score: number }>>('SELECT score FROM words WHERE id = $1', [id]);
+  if (result.length === 0) return;
+  
+  const newScore = Math.max(0, result[0].score + scoreChange);
+  const nextReviewAt = calculateNextReview(newScore);
+  
+  await database.execute(
+    'UPDATE words SET score = $1, lastReviewedAt = $2, nextReviewAt = $3 WHERE id = $4',
+    [newScore, now, nextReviewAt, id]
+  );
 }
 
 // Export words in simple text format: "original | translation | article"
@@ -179,7 +219,15 @@ export async function importWords(text: string): Promise<{ added: number; skippe
     
     // Add the word
     try {
-      await addWord({ original, translation, article });
+      await addWord({ 
+        original, 
+        translation, 
+        article, 
+        score: 0, 
+        createdAt: Date.now(), 
+        lastReviewedAt: 0, 
+        nextReviewAt: Date.now() 
+      });
       existingSet.add(key); // Add to set to avoid duplicates in same import
       added++;
     } catch (error) {

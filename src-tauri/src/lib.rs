@@ -161,6 +161,15 @@ pub fn run() {
                 created_at DATETIME DEFAULT CURRENT_TIMESTAMP
             )",
             kind: MigrationKind::Up,
+        },
+        Migration {
+            version: 2,
+            description: "add_spaced_repetition_fields",
+            sql: "ALTER TABLE words ADD COLUMN score INTEGER NOT NULL DEFAULT 0;
+                  ALTER TABLE words ADD COLUMN createdAt INTEGER NOT NULL DEFAULT 0;
+                  ALTER TABLE words ADD COLUMN lastReviewedAt INTEGER NOT NULL DEFAULT 0;
+                  ALTER TABLE words ADD COLUMN nextReviewAt INTEGER NOT NULL DEFAULT 0;",
+            kind: MigrationKind::Up,
         }
     ];
 

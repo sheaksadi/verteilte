@@ -4,8 +4,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Moon, Sun, Edit3, Plus, X, Check, Download, Upload, Copy } from 'lucide-vue-next';
-import { initializeDictionary, searchDictionary, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, exportWords, importWords, type Word } from '@/lib/database';
+import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, exportWords, importWords, updateWordReview, type Word } from '@/lib/database';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 const words = ref<Word[]>([]);
@@ -22,6 +22,8 @@ const newWordTranslation = ref('');
 const newWordArticle = ref('');
 const suggestions = ref<DictionaryEntry[]>([]);
 const showSuggestions = ref(false);
+const translationSuggestions = ref<DictionaryEntry[]>([]);
+const showTranslationSuggestions = ref(false);
 const isLoading = ref(true);
 const dictionaryInfo = ref<DictionaryInfo | null>(null);
 const importText = ref('');
@@ -46,16 +48,111 @@ const currentCard = computed(() => words.value[currentIndex.value]);
 
 const answerLength = computed(() => currentCard.value?.original?.length || 0);
 
+const inputSize = computed(() => {
+  const length = answerLength.value;
+  if (length <= 8) return 'w-10 h-12 text-xl';
+  if (length <= 12) return 'w-8 h-10 text-lg';
+  if (length <= 16) return 'w-7 h-9 text-base';
+  return 'w-6 h-8 text-sm';
+});
+
 const userInputString = computed(() => userInput.value.join(''));
 
+// Store the answer when checking to prevent re-evaluation issues
+const checkedAnswer = ref('');
+const expectedAnswer = ref('');
+
 const isCorrect = computed(() => {
-  if (!showResult.value || !currentCard.value) return null;
-  return userInputString.value.toLowerCase().trim() === currentCard.value.original.toLowerCase().trim();
+  if (!showResult.value || !currentCard.value) {
+    console.log('[Debug] isCorrect: Not ready to check', { showResult: showResult.value, hasCard: !!currentCard.value });
+    return null;
+  }
+  
+  // Use the stored checked answer instead of live userInput
+  const answer = checkedAnswer.value || userInputString.value;
+  const correct = answer.toLowerCase().trim();
+  
+  // Use expected answer if we stored it, otherwise use current card
+  const expected = (expectedAnswer.value || currentCard.value.original).toLowerCase().trim();
+  const result = correct === expected;
+  
+  console.log('[Debug] isCorrect computed:', {
+    answer,
+    correct,
+    expected,
+    result,
+    showResult: showResult.value,
+    currentCardOriginal: currentCard.value.original
+  });
+  
+  return result;
+});
+
+// Calculate next review time based on score change
+// Using improved spaced repetition intervals based on Anki/SuperMemo research:
+// - Bad: -2 score, decreases interval (goes back further)
+// - Good: +1 score, increases by 2.5x 
+// - Great: +2 score, increases by 3x
+const calculateNextReview = (currentScore: number, scoreChange: number): number => {
+  const now = Date.now();
+  const newScore = Math.max(0, currentScore + scoreChange);
+  
+  // If score is 0 (new card or failed card), start with 10 minutes
+  if (newScore === 0) {
+    return now + 10 * 60 * 1000;
+  }
+  
+  // For positive scores, use exponential growth
+  // Base interval is 1 hour, grows exponentially with score
+  const baseInterval = 60 * 60 * 1000; // 1 hour base
+  const interval = baseInterval * Math.pow(2.5, newScore - 1);
+  return now + interval;
+};
+
+// Format time interval for display
+const formatInterval = (ms: number): string => {
+  const seconds = Math.floor(ms / 1000);
+  const minutes = Math.floor(seconds / 60);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  
+  if (days > 0) return `${days}d`;
+  if (hours > 0) return `${hours}h`;
+  if (minutes > 0) return `${minutes}m`;
+  return `${seconds}s`;
+};
+
+// Calculate intervals for button display
+const badInterval = computed(() => {
+  if (!currentCard.value) return '';
+  const nextReview = calculateNextReview(currentCard.value.score, -2);
+  return formatInterval(nextReview - Date.now());
+});
+
+const goodInterval = computed(() => {
+  if (!currentCard.value) return '';
+  const nextReview = calculateNextReview(currentCard.value.score, 1);
+  return formatInterval(nextReview - Date.now());
+});
+
+const greatInterval = computed(() => {
+  if (!currentCard.value) return '';
+  const nextReview = calculateNextReview(currentCard.value.score, 2);
+  return formatInterval(nextReview - Date.now());
+});
+
+// Format last reviewed time
+const lastReviewedText = computed(() => {
+  if (!currentCard.value || !currentCard.value.lastReviewedAt) return 'Never';
+  const diff = Date.now() - currentCard.value.lastReviewedAt;
+  return formatInterval(diff) + ' ago';
 });
 
 const initializeInput = () => {
   userInput.value = new Array(answerLength.value).fill('');
   showResult.value = false;
+  checkedAnswer.value = '';
+  expectedAnswer.value = '';
   setTimeout(() => {
     const firstInput = inputRefs.value[0];
     if (firstInput) {
@@ -85,14 +182,37 @@ const handleInput = (index: number, event: Event) => {
         }
       }, 0);
     } else {
-      // All characters filled, trigger spell check
+      // All characters filled, lock in the answer and check spelling
+      const finalAnswer = userInput.value.join('');
+      checkedAnswer.value = finalAnswer;
+      
+      // Also store what we're checking against to prevent card changes
+      const expectedWord = currentCard.value?.original || '';
+      expectedAnswer.value = expectedWord;
+      
+      // Check immediately and store the result
+      const isAnswerCorrect = finalAnswer.toLowerCase().trim() === expectedWord.toLowerCase().trim();
+      
+      console.log('[Debug] Checking answer:', {
+        typed: finalAnswer,
+        expected: expectedWord,
+        match: isAnswerCorrect
+      });
+      
+      showResult.value = true;
+      
+      // Then trigger flip and auto-advance
       setTimeout(() => {
         target.blur();
         flipCard();
-        // If correct, auto-select "Great" and move to next card
+        // If correct, automatically rate as "good" and move to next card
         setTimeout(() => {
-          if (isCorrect.value) {
-            nextCard();
+          console.log('[Debug] Using stored result:', isAnswerCorrect);
+          if (isAnswerCorrect) {
+            console.log('[Debug] Correct! Moving to next card...');
+            nextCard('good');
+          } else {
+            console.log('[Debug] Incorrect, not auto-advancing');
           }
         }, 1000);
       }, 200);
@@ -139,6 +259,17 @@ const handlePaste = (event: ClipboardEvent) => {
     
     // If all filled, trigger spell check
     if (nextEmptyIndex === -1) {
+      const finalAnswer = userInput.value.join('');
+      checkedAnswer.value = finalAnswer;
+      expectedAnswer.value = currentCard.value?.original || '';
+      showResult.value = true;
+      
+      console.log('[Debug] Paste check:', {
+        typed: finalAnswer,
+        expected: expectedAnswer.value,
+        match: finalAnswer.toLowerCase().trim() === expectedAnswer.value.toLowerCase().trim()
+      });
+      
       setTimeout(() => {
         flipCard();
       }, 100);
@@ -147,35 +278,47 @@ const handlePaste = (event: ClipboardEvent) => {
 };
 
 const flipCard = () => {
-  if (!isFlipped.value && userInputString.value.trim()) {
-    // Check spelling when flipping
-    showResult.value = true;
-  }
+  // Only flip the card, don't change showResult here
+  // showResult is set when typing completes
   isFlipped.value = !isFlipped.value;
 };
 
 
 
-const nextCard = () => {
+const nextCard = async (rating: 'bad' | 'good' | 'great') => {
+  if (!currentCard.value?.id) return;
+  
+  console.log('[Debug] ========== NEXT CARD CALLED ==========');
+  console.log('[Debug] Rating:', rating);
+  console.log('[Debug] Current card:', currentCard.value.original);
+  console.log('[Debug] Current score:', currentCard.value.score);
+  
+  // Store the current card ID before any updates
+  const currentWordId = currentCard.value.id;
+  
+  // Update score based on rating
+  const scoreChange = rating === 'bad' ? -2 : rating === 'good' ? 1 : 2;
+  console.log('[Debug] Score change:', scoreChange);
+  
+  await updateWordReview(currentWordId, scoreChange);
+  
+  // Reload words to get updated order
+  words.value = await getAllWords();
+  
+  console.log('[Debug] Words reloaded, new first card:', words.value[0]?.original);
+  
+  // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
+  currentIndex.value = 0;
+  
   // First flip back to front if currently flipped
   if (isFlipped.value) {
     isFlipped.value = false;
-    // Wait for flip animation to complete before changing card
+    // Wait for flip animation to complete before initializing
     setTimeout(() => {
-      if (currentIndex.value < words.value.length - 1) {
-        currentIndex.value++;
-      } else {
-        currentIndex.value = 0;
-      }
       initializeInput();
     }, 700); // Match the transition duration
   } else {
-    // If already on front, just move to next card
-    if (currentIndex.value < words.value.length - 1) {
-      currentIndex.value++;
-    } else {
-      currentIndex.value = 0;
-    }
+    // If already on front, just initialize
     initializeInput();
   }
 };
@@ -216,12 +359,24 @@ const toggleDarkMode = () => {
 const updateSuggestions = async () => {
   const searchTerm = newWordOriginal.value.trim();
   if (searchTerm.length >= 2 && dictionaryInfo.value) {
-    const results = await searchDictionary(searchTerm, 5);
+    const results = await searchDictionary(searchTerm, 10);
     suggestions.value = results;
     showSuggestions.value = results.length > 0;
   } else {
     suggestions.value = [];
     showSuggestions.value = false;
+  }
+};
+
+const updateTranslationSuggestions = async () => {
+  const searchTerm = newWordTranslation.value.trim();
+  if (searchTerm.length >= 2 && dictionaryInfo.value) {
+    const results = await searchByMeaning(searchTerm, 10);
+    translationSuggestions.value = results;
+    showTranslationSuggestions.value = results.length > 0;
+  } else {
+    translationSuggestions.value = [];
+    showTranslationSuggestions.value = false;
   }
 };
 
@@ -232,10 +387,17 @@ const selectSuggestion = (suggestion: DictionaryEntry) => {
                         suggestion.gender === 'fem' ? 'die' : 
                         suggestion.gender === 'neut' ? 'das' : '';
   showSuggestions.value = false;
-  nextTick(() => {
-    const translationInput = document.getElementById('newWordTranslation') as HTMLInputElement;
-    if (translationInput) translationInput.focus();
-  });
+  showTranslationSuggestions.value = false;
+};
+
+const selectTranslationSuggestion = (suggestion: DictionaryEntry) => {
+  newWordOriginal.value = suggestion.word;
+  newWordTranslation.value = suggestion.meanings?.[0] || '';
+  newWordArticle.value = suggestion.gender === 'masc' ? 'der' : 
+                        suggestion.gender === 'fem' ? 'die' : 
+                        suggestion.gender === 'neut' ? 'das' : '';
+  showSuggestions.value = false;
+  showTranslationSuggestions.value = false;
 };
 
 const focusTranslation = () => {
@@ -249,15 +411,23 @@ const focusArticle = () => {
 };
 
 const delayHideSuggestions = () => {
-  setTimeout(() => showSuggestions.value = false, 200);
+  setTimeout(() => {
+    showSuggestions.value = false;
+    showTranslationSuggestions.value = false;
+  }, 200);
 };
 
 const addWord = async () => {
   if (newWordOriginal.value.trim() && newWordTranslation.value.trim()) {
+    const now = Date.now();
     const newWord: Omit<Word, 'id'> = {
       original: newWordOriginal.value.trim(),
       translation: newWordTranslation.value.trim(),
-      article: newWordArticle.value.trim()
+      article: newWordArticle.value.trim(),
+      score: 0,
+      createdAt: now,
+      lastReviewedAt: 0,
+      nextReviewAt: now
     };
     
     await dbAddWord(newWord);
@@ -483,7 +653,7 @@ watch(currentIndex, () => {
                 <button
                   v-for="(suggestion, idx) in suggestions"
                   :key="idx"
-                  @click="selectSuggestion(suggestion)"
+                  @mousedown.prevent="selectSuggestion(suggestion)"
                   class="w-full px-3 py-2 text-left hover:bg-accent transition-colors border-b last:border-b-0"
                 >
                   <div class="font-semibold">
@@ -498,13 +668,40 @@ watch(currentIndex, () => {
                 </button>
               </div>
             </div>
-            <Input 
-              id="newWordTranslation"
-              v-model="newWordTranslation" 
-              placeholder="English translation (e.g., House)" 
-              @keyup.enter="focusArticle"
-              class="text-lg"
-            />
+            <div class="relative">
+              <Input 
+                id="newWordTranslation"
+                v-model="newWordTranslation" 
+                placeholder="English translation (e.g., House)" 
+                @input="updateTranslationSuggestions"
+                @keyup.enter="focusArticle"
+                @blur="delayHideSuggestions"
+                @focus="updateTranslationSuggestions"
+                class="text-lg"
+              />
+              <!-- Translation Suggestions Dropdown -->
+              <div 
+                v-if="showTranslationSuggestions && translationSuggestions.length > 0"
+                class="absolute z-10 w-full mt-1 bg-background border rounded-md shadow-lg max-h-60 overflow-y-auto"
+              >
+                <button
+                  v-for="(suggestion, idx) in translationSuggestions"
+                  :key="idx"
+                  @mousedown.prevent="selectTranslationSuggestion(suggestion)"
+                  class="w-full px-3 py-2 text-left hover:bg-accent transition-colors border-b last:border-b-0"
+                >
+                  <div class="font-semibold">
+                    <span v-if="suggestion.gender" class="text-xs text-muted-foreground mr-1">
+                      {{ suggestion.gender === 'masc' ? 'der' : suggestion.gender === 'fem' ? 'die' : suggestion.gender === 'neut' ? 'das' : '' }}
+                    </span>
+                    {{ suggestion.word }}
+                  </div>
+                  <div class="text-sm text-muted-foreground truncate">
+                    {{ suggestion.meanings?.[0] || 'No translation' }}
+                  </div>
+                </button>
+              </div>
+            </div>
             <Input 
               id="newWordArticle"
               v-model="newWordArticle" 
@@ -606,7 +803,15 @@ watch(currentIndex, () => {
           :class="{ 'rotate-y-180': isFlipped }" @click="flipCard">
           <!-- Front of the card -->
           <div class="absolute w-full h-full backface-hidden flex flex-col">
-            <CardContent class="p-8 text-center flex-1 flex flex-col justify-center">
+            <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
+              <!-- Score and Last Reviewed in corners -->
+              <div class="absolute top-2 left-2 text-xs text-muted-foreground">
+                Score: {{ currentCard.score }}
+              </div>
+              <div class="absolute top-2 right-2 text-xs text-muted-foreground text-right">
+                {{ lastReviewedText }}
+              </div>
+              
               <div class="text-4xl font-bold text-primary dark:text-purple-400 mb-6 transition-all duration-300">
                 {{ currentCard.translation }}
               </div>
@@ -642,13 +847,26 @@ watch(currentIndex, () => {
                 <p class="text-sm text-muted-foreground transition-all duration-300">
                   {{ showResult ? (isCorrect ? '✓ Correct!' : '✗ Incorrect') : 'Type answer - auto-checks when complete' }}
                 </p>
+                
+                <!-- Debug info -->
+                <p v-if="showResult" class="text-xs text-muted-foreground mt-2">
+                  Your answer: "{{ checkedAnswer }}" | Expected: "{{ currentCard.original }}"
+                </p>
               </div>
             </CardContent>
           </div>
 
           <!-- Back of the card -->
           <div class="absolute w-full h-full backface-hidden rotate-y-180 flex flex-col">
-            <CardContent class="p-8 text-center flex-1 flex flex-col justify-center">
+            <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
+              <!-- Score and Last Reviewed in corners -->
+              <div class="absolute top-2 left-2 text-xs text-muted-foreground">
+                Score: {{ currentCard.score }}
+              </div>
+              <div class="absolute top-2 right-2 text-xs text-muted-foreground text-right">
+                {{ lastReviewedText }}
+              </div>
+              
               <div class="text-4xl font-bold text-primary dark:text-purple-400 mb-4 transition-all duration-300">
                 {{ currentCard.original }}
               </div>
@@ -684,14 +902,17 @@ watch(currentIndex, () => {
 
       <!-- Navigation directly under card -->
       <div class="grid grid-cols-3 gap-3">
-        <Button variant="outline" class="w-full" @click="nextCard">
-          Bad
+        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('bad')">
+          <span class="font-semibold">Bad</span>
+          <span class="text-xs text-muted-foreground">{{ badInterval }}</span>
         </Button>
-        <Button variant="outline" class="w-full" @click="nextCard">
-          Good
+        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('good')">
+          <span class="font-semibold">Good</span>
+          <span class="text-xs text-muted-foreground">{{ goodInterval }}</span>
         </Button>
-        <Button variant="outline" class="w-full" @click="nextCard">
-          Great
+        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('great')">
+          <span class="font-semibold">Great</span>
+          <span class="text-xs text-muted-foreground">{{ greatInterval }}</span>
         </Button>
       </div>
 
