@@ -41,6 +41,11 @@ export async function initDatabase(): Promise<Database | null> {
   return db;
 }
 
+// Alias for consistency
+export async function getDatabase(): Promise<Database | null> {
+  return initDatabase();
+}
+
 export async function getAllWords(): Promise<Word[]> {
   const database = await initDatabase();
   
@@ -236,4 +241,27 @@ export async function importWords(text: string): Promise<{ added: number; skippe
   }
   
   return { added, skipped, errors };
+}
+
+// Reset all words to score 0 and make them due now
+export async function resetAllWords(): Promise<void> {
+  const database = await initDatabase();
+  const now = Date.now();
+  
+  if (!database) {
+    // In-memory mode
+    inMemoryWords = inMemoryWords.map(word => ({
+      ...word,
+      score: 0,
+      lastReviewedAt: now,
+      nextReviewAt: now
+    }));
+    return;
+  }
+  
+  // Database mode
+  await database.execute(
+    'UPDATE words SET score = 0, lastReviewedAt = $1, nextReviewAt = $1',
+    [now]
+  );
 }

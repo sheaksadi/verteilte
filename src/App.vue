@@ -5,10 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Moon, Sun, Edit3, Plus, X, Check, Download, Upload, Copy } from 'lucide-vue-next';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, exportWords, importWords, updateWordReview, type Word } from '@/lib/database';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, exportWords, importWords, updateWordReview, resetAllWords, getDatabase, type Word } from '@/lib/database';
 import { writeText } from '@tauri-apps/plugin-clipboard-manager';
 
 const words = ref<Word[]>([]);
+
 
 const currentIndex = ref(0);
 const isFlipped = ref(false);
@@ -44,7 +45,22 @@ const debugInfo = ref({
 // Ensure minimum loading time to prevent flash
 let loadStartTime = Date.now();
 
-const currentCard = computed(() => words.value[currentIndex.value]);
+// Filter words to only show those due for review
+const dueWords = computed(() => {
+  const now = Date.now();
+  const due = words.value.filter(word => word.nextReviewAt <= now);
+  console.log('[Debug] Due words calculation:', {
+    totalWords: words.value.length,
+    dueWords: due.length,
+    now,
+    firstWordNextReview: words.value[0]?.nextReviewAt,
+    firstWordDue: words.value[0] ? words.value[0].nextReviewAt <= now : false
+  });
+  return due;
+});
+
+// Current card from due words only
+const currentCard = computed(() => dueWords.value[currentIndex.value]);
 
 const answerLength = computed(() => currentCard.value?.original?.length || 0);
 
@@ -182,12 +198,15 @@ const handleInput = (index: number, event: Event) => {
     
     // Move to next input if not at the end
     if (index < answerLength.value - 1) {
-      setTimeout(() => {
+      // Use nextTick instead of setTimeout for better Vue reactivity
+      nextTick(() => {
         const nextInput = inputRefs.value[index + 1];
         if (nextInput) {
           nextInput.focus();
+          // Ensure cursor is at the end (mobile keyboard fix)
+          nextInput.setSelectionRange(nextInput.value.length, nextInput.value.length);
         }
-      }, 0);
+      });
     } else {
       // All characters filled, lock in the answer and check spelling
       const finalAnswer = userInput.value.join('');
@@ -310,6 +329,55 @@ const nextCardAfterIncorrect = () => {
   nextCard('bad');
 };
 
+const laterCard = async () => {
+  try {
+    console.log('[Debug] Later button clicked');
+    if (!currentCard.value?.id) {
+      console.log('[Debug] No current card');
+      return;
+    }
+    
+    // Set next review to 1 minute from now without changing score
+    const oneMinuteFromNow = Date.now() + 60000; // 60 seconds
+    
+    console.log('[Debug] Getting database...');
+    const database = await getDatabase();
+    console.log('[Debug] Updating word:', currentCard.value.id);
+    await database.execute(
+      'UPDATE words SET nextReviewAt = ? WHERE id = ?',
+      [oneMinuteFromNow, currentCard.value.id]
+    );
+    
+    console.log('[Debug] Reloading words...');
+    // Reload words
+    words.value = await getAllWords();
+    
+    console.log('[Debug] Moving to next card...');
+    
+    // Flip back to front if needed
+    if (isFlipped.value) {
+      isFlipped.value = false;
+      setTimeout(() => {
+        // Clear state after flip completes
+        userInput.value = new Array(answerLength.value).fill('');
+        showResult.value = false;
+        checkedAnswer.value = '';
+        expectedAnswer.value = '';
+        initializeInput();
+      }, 700);
+    } else {
+      // Clear and initialize immediately if not flipped
+      userInput.value = new Array(answerLength.value).fill('');
+      showResult.value = false;
+      checkedAnswer.value = '';
+      expectedAnswer.value = '';
+      initializeInput();
+    }
+  } catch (error) {
+    console.error('[Debug] Later card error:', error);
+  }
+};
+
 const nextCard = async (rating: 'bad' | 'good' | 'great') => {
   if (!currentCard.value?.id) return;
   
@@ -327,23 +395,40 @@ const nextCard = async (rating: 'bad' | 'good' | 'great') => {
   
   await updateWordReview(currentWordId, scoreChange);
   
-  // Reload words to get updated order
-  words.value = await getAllWords();
-  
-  console.log('[Debug] Words reloaded, new first card:', words.value[0]?.original);
-  
-  // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
-  currentIndex.value = 0;
-  
   // First flip back to front if currently flipped
   if (isFlipped.value) {
     isFlipped.value = false;
-    // Wait for flip animation to complete before initializing
-    setTimeout(() => {
+    // Wait for flip animation to complete before loading next card
+    setTimeout(async () => {
+      // Reload words to get updated order
+      words.value = await getAllWords();
+      
+      console.log('[Debug] Words reloaded, new first card:', dueWords.value[0]?.original);
+      
+      // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
+      currentIndex.value = 0;
+      
+      // Clear state after flip completes
+      userInput.value = new Array(answerLength.value).fill('');
+      showResult.value = false;
+      checkedAnswer.value = '';
+      expectedAnswer.value = '';
       initializeInput();
     }, 700); // Match the transition duration
   } else {
-    // If already on front, just initialize
+    // Reload words to get updated order
+    words.value = await getAllWords();
+    
+    console.log('[Debug] Words reloaded, new first card:', dueWords.value[0]?.original);
+    
+    // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
+    currentIndex.value = 0;
+    
+    // If already on front, clear and initialize immediately
+    userInput.value = new Array(answerLength.value).fill('');
+    showResult.value = false;
+    checkedAnswer.value = '';
+    expectedAnswer.value = '';
     initializeInput();
   }
 };
@@ -556,6 +641,16 @@ const closeImportDialog = () => {
   importResult.value = null;
 };
 
+const resetAllCardsDebug = async () => {
+  if (confirm('Reset all cards to score 0 and make them due now? This cannot be undone!')) {
+    await resetAllWords();
+    words.value = await getAllWords();
+    currentIndex.value = 0;
+    initializeInput();
+    alert('All cards have been reset!');
+  }
+};
+
 onMounted(async () => {
   loadStartTime = Date.now();
   
@@ -581,6 +676,12 @@ onMounted(async () => {
     words.value = await getAllWords();
     debugInfo.value.dbWordsCount = words.value.length;
     console.log(`Loaded ${words.value.length} words from database`);
+    console.log('[Debug] First 3 words:', words.value.slice(0, 3).map(w => ({
+      original: w.original,
+      nextReviewAt: w.nextReviewAt,
+      now: Date.now(),
+      isDue: w.nextReviewAt <= Date.now()
+    })));
   } catch (error) {
     console.error('Failed to load words from database:', error);
     debugInfo.value.loadError = error instanceof Error ? error.message : String(error);
@@ -641,6 +742,7 @@ onMounted(async () => {
 watch(currentIndex, () => {
   initializeInput();
 });
+
 </script>
 
 <template>
@@ -794,6 +896,52 @@ watch(currentIndex, () => {
       </Card>
     </div>
 
+    <!-- No cards due message -->
+    <div v-else-if="dueWords.length === 0" class="text-center max-w-md mx-auto">
+      <Card>
+        <CardContent class="p-8">
+          <h2 class="text-xl font-semibold mb-3">🎉 All caught up!</h2>
+          <p class="text-muted-foreground mb-2">No cards are due for review right now.</p>
+          <p class="text-sm text-muted-foreground mb-4">Come back later to review more cards.</p>
+          <Button @click="toggleEditView" variant="outline">
+            <Plus class="h-4 w-4 mr-2" /> Add More Words
+          </Button>
+        </CardContent>
+      </Card>
+      
+      <!-- Debug Info on All Caught Up Screen -->
+      <Card class="mt-4">
+        <CardContent class="p-3">
+          <h3 class="text-xs font-semibold mb-2">Debug Info</h3>
+          <div class="text-xs text-muted-foreground space-y-1">
+            <div>Platform: <span class="font-mono">{{ debugInfo.platform }}</span></div>
+            <div>Words in DB: <span class="font-mono">{{ debugInfo.dbWordsCount }}</span></div>
+            <div>Dictionary Loaded: <span :class="debugInfo.dictionaryLoaded ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="font-mono">{{ debugInfo.dictionaryLoaded ? 'YES' : 'NO' }}</span></div>
+            <div v-if="debugInfo.dictionaryVersion">Dictionary Version: <span class="font-mono">{{ debugInfo.dictionaryVersion }}</span></div>
+            <div v-if="debugInfo.loadError" class="text-red-600 dark:text-red-400 break-words mt-1">Error: {{ debugInfo.loadError }}</div>
+          </div>
+          
+          <div class="mt-3 border-t pt-2">
+            <Button 
+              @click="resetAllCardsDebug" 
+              variant="destructive" 
+              size="sm" 
+              class="w-full text-xs"
+            >
+              Reset All Cards (Score=0, Due Now)
+            </Button>
+          </div>
+          
+          <div v-if="debugInfo.dictionaryLogs.length > 0" class="mt-3 border-t pt-2">
+            <div class="text-xs font-semibold mb-1">Dictionary Logs ({{ debugInfo.dictionaryLogs.length }}):</div>
+            <div class="max-h-60 overflow-y-auto bg-black/5 dark:bg-white/5 p-2 rounded">
+              <div v-for="(log, i) in debugInfo.dictionaryLogs" :key="i" class="text-[10px] font-mono break-words py-0.5 leading-tight" :class="log.includes('ERROR') ? 'text-red-600 dark:text-red-400 font-semibold' : log.includes('✓') || log.includes('Successfully') ? 'text-green-600 dark:text-green-400' : ''">{{ log }}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+
     <!-- Flashcard content -->
     <div v-else>
     <!-- Header -->
@@ -824,7 +972,7 @@ watch(currentIndex, () => {
         </div>
       </div>
       <p class="text-sm text-muted-foreground">
-        Card {{ currentIndex + 1 }} of {{ words.length }}
+        Card {{ currentIndex + 1 }} of {{ dueWords.length }}
       </p>
     </div>
 
@@ -868,6 +1016,8 @@ watch(currentIndex, () => {
                     autocorrect="off"
                     autocapitalize="off"
                     spellcheck="false"
+                    inputmode="text"
+                    enterkeyhint="next"
                     class="w-10 h-12 text-center text-xl font-semibold p-0 transition-all border rounded-md bg-background"
                     :class="{
                       'border-green-500 ring-2 ring-green-500 dark:border-green-600 dark:ring-green-600 bg-green-50 dark:bg-green-950': showResult && isCorrect,
@@ -934,42 +1084,60 @@ watch(currentIndex, () => {
       </div>
 
       <!-- Navigation directly under card -->
-      <div v-if="showResult && !isCorrect" class="flex justify-center">
+      <div v-if="showResult && !isCorrect" class="flex flex-col gap-2">
         <Button 
           class="w-full max-w-md dark:bg-purple-500 dark:hover:bg-purple-600" 
           @click="nextCardAfterIncorrect"
         >
           Next
         </Button>
+        <Button 
+          variant="outline"
+          class="w-full max-w-md" 
+          @click="laterCard"
+        >
+          Later (1 min)
+        </Button>
       </div>
-      <div v-else class="grid grid-cols-3 gap-3">
-        <Button 
-          variant="outline" 
-          class="w-full flex flex-col gap-0.5 h-auto py-2" 
-          @click="nextCard('bad')"
-          :disabled="showResult && !isCorrect"
-        >
-          <span class="font-semibold">Bad</span>
-          <span class="text-xs text-muted-foreground">{{ badInterval }}</span>
-        </Button>
-        <Button 
-          variant="outline" 
-          class="w-full flex flex-col gap-0.5 h-auto py-2" 
-          @click="nextCard('good')"
-          :disabled="showResult && !isCorrect"
-        >
-          <span class="font-semibold">Good</span>
-          <span class="text-xs text-muted-foreground">{{ goodInterval }}</span>
-        </Button>
-        <Button 
-          variant="outline" 
-          class="w-full flex flex-col gap-0.5 h-auto py-2" 
-          @click="nextCard('great')"
-          :disabled="showResult && !isCorrect"
-        >
-          <span class="font-semibold">Great</span>
-          <span class="text-xs text-muted-foreground">{{ greatInterval }}</span>
-        </Button>
+      <div v-else class="flex flex-col gap-2">
+        <div class="grid grid-cols-4 gap-3">
+          <Button 
+            variant="outline" 
+            class="w-full flex flex-col gap-0.5 h-auto py-2" 
+            @click="laterCard"
+            :disabled="showResult && !isCorrect"
+          >
+            <span class="font-semibold">Later</span>
+            <span class="text-xs text-muted-foreground">1 min</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            class="w-full flex flex-col gap-0.5 h-auto py-2" 
+            @click="nextCard('bad')"
+            :disabled="showResult && !isCorrect"
+          >
+            <span class="font-semibold">Bad</span>
+            <span class="text-xs text-muted-foreground">{{ badInterval }}</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            class="w-full flex flex-col gap-0.5 h-auto py-2" 
+            @click="nextCard('good')"
+            :disabled="showResult && !isCorrect"
+          >
+            <span class="font-semibold">Good</span>
+            <span class="text-xs text-muted-foreground">{{ goodInterval }}</span>
+          </Button>
+          <Button 
+            variant="outline" 
+            class="w-full flex flex-col gap-0.5 h-auto py-2" 
+            @click="nextCard('great')"
+            :disabled="showResult && !isCorrect"
+          >
+            <span class="font-semibold">Great</span>
+            <span class="text-xs text-muted-foreground">{{ greatInterval }}</span>
+          </Button>
+        </div>
       </div>
 
       <!-- Debug Info -->
@@ -982,6 +1150,17 @@ watch(currentIndex, () => {
             <div>Dictionary Loaded: <span :class="debugInfo.dictionaryLoaded ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="font-mono">{{ debugInfo.dictionaryLoaded ? 'YES' : 'NO' }}</span></div>
             <div v-if="debugInfo.dictionaryVersion">Dictionary Version: <span class="font-mono">{{ debugInfo.dictionaryVersion }}</span></div>
             <div v-if="debugInfo.loadError" class="text-red-600 dark:text-red-400 break-words mt-1">Error: {{ debugInfo.loadError }}</div>
+          </div>
+          
+          <div class="mt-3 border-t pt-2">
+            <Button 
+              @click="resetAllCardsDebug" 
+              variant="destructive" 
+              size="sm" 
+              class="w-full text-xs"
+            >
+              Reset All Cards (Score=0, Due Now)
+            </Button>
           </div>
           
           <div v-if="debugInfo.dictionaryLogs.length > 0" class="mt-3 border-t pt-2">
