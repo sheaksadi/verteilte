@@ -4,17 +4,10 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Moon, Sun, Edit3, Plus, X, Check } from 'lucide-vue-next';
-import { loadDictionary, fuzzySearch, type DictionaryEntry, type SearchResult } from '@/lib/dictionary';
+import { initializeDictionary, searchDictionary, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, type Word } from '@/lib/database';
 
-const words = ref([
-  { original: 'Hallo', translation: 'Hello', article: '' },
-  { original: 'Tschüss', translation: 'Goodbye', article: '' },
-  { original: 'Danke', translation: 'Thank you', article: '' },
-  { original: 'Bitte', translation: 'Please', article: '' },
-  { original: 'Haus', translation: 'House', article: 'das' },
-  { original: 'Katze', translation: 'Cat', article: 'die' },
-  { original: 'Hund', translation: 'Dog', article: 'der' },
-]);
+const words = ref<Word[]>([]);
 
 const currentIndex = ref(0);
 const isFlipped = ref(false);
@@ -26,18 +19,32 @@ const showEditView = ref(false);
 const newWordOriginal = ref('');
 const newWordTranslation = ref('');
 const newWordArticle = ref('');
-const dictionary = ref<DictionaryEntry[]>([]);
-const suggestions = ref<SearchResult[]>([]);
+const suggestions = ref<DictionaryEntry[]>([]);
 const showSuggestions = ref(false);
+const isLoading = ref(true);
+const dictionaryInfo = ref<DictionaryInfo | null>(null);
+
+// Debug info
+const debugInfo = ref({
+  platform: 'unknown',
+  dictionaryLoaded: false,
+  dictionaryVersion: '',
+  loadError: '',
+  dbWordsCount: 0,
+  dictionaryLogs: [] as string[],
+});
+
+// Ensure minimum loading time to prevent flash
+let loadStartTime = Date.now();
 
 const currentCard = computed(() => words.value[currentIndex.value]);
 
-const answerLength = computed(() => currentCard.value.original.length);
+const answerLength = computed(() => currentCard.value?.original?.length || 0);
 
 const userInputString = computed(() => userInput.value.join(''));
 
 const isCorrect = computed(() => {
-  if (!showResult.value) return null;
+  if (!showResult.value || !currentCard.value) return null;
   return userInputString.value.toLowerCase().trim() === currentCard.value.original.toLowerCase().trim();
 });
 
@@ -201,18 +208,19 @@ const toggleDarkMode = () => {
   }
 };
 
-const updateSuggestions = () => {
+const updateSuggestions = async () => {
   const searchTerm = newWordOriginal.value.trim();
-  if (searchTerm.length >= 2 && dictionary.value.length > 0) {
-    suggestions.value = fuzzySearch(dictionary.value, searchTerm, 0.5).slice(0, 5);
-    showSuggestions.value = suggestions.value.length > 0;
+  if (searchTerm.length >= 2 && dictionaryInfo.value) {
+    const results = await searchDictionary(searchTerm, 5);
+    suggestions.value = results;
+    showSuggestions.value = results.length > 0;
   } else {
     suggestions.value = [];
     showSuggestions.value = false;
   }
 };
 
-const selectSuggestion = (suggestion: SearchResult) => {
+const selectSuggestion = (suggestion: DictionaryEntry) => {
   newWordOriginal.value = suggestion.word;
   newWordTranslation.value = suggestion.meanings?.[0] || '';
   newWordArticle.value = suggestion.gender === 'masc' ? 'der' : 
@@ -225,13 +233,31 @@ const selectSuggestion = (suggestion: SearchResult) => {
   });
 };
 
-const addWord = () => {
+const focusTranslation = () => {
+  const translationInput = document.getElementById('newWordTranslation') as HTMLInputElement;
+  if (translationInput) translationInput.focus();
+};
+
+const focusArticle = () => {
+  const articleInput = document.getElementById('newWordArticle') as HTMLInputElement;
+  if (articleInput) articleInput.focus();
+};
+
+const delayHideSuggestions = () => {
+  setTimeout(() => showSuggestions.value = false, 200);
+};
+
+const addWord = async () => {
   if (newWordOriginal.value.trim() && newWordTranslation.value.trim()) {
-    words.value.push({
+    const newWord: Omit<Word, 'id'> = {
       original: newWordOriginal.value.trim(),
       translation: newWordTranslation.value.trim(),
       article: newWordArticle.value.trim()
-    });
+    };
+    
+    await dbAddWord(newWord);
+    words.value = await getAllWords();
+    
     newWordOriginal.value = '';
     newWordTranslation.value = '';
     newWordArticle.value = '';
@@ -244,10 +270,14 @@ const addWord = () => {
   }
 };
 
-const deleteWord = (index: number) => {
-  words.value.splice(index, 1);
-  if (currentIndex.value >= words.value.length) {
-    currentIndex.value = Math.max(0, words.value.length - 1);
+const deleteWord = async (index: number) => {
+  const word = words.value[index];
+  if (word.id) {
+    await dbDeleteWord(word.id);
+    words.value = await getAllWords();
+    if (currentIndex.value >= words.value.length) {
+      currentIndex.value = Math.max(0, words.value.length - 1);
+    }
   }
 };
 
@@ -262,24 +292,76 @@ const toggleEditView = () => {
 };
 
 onMounted(async () => {
+  loadStartTime = Date.now();
+  
+  // Detect platform
+  debugInfo.value.platform = typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window ? 'tauri' : 'browser';
+  
   // Check system preference for dark mode
   if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
     isDarkMode.value = true;
     document.documentElement.classList.add('dark');
   }
   
-  // Initialize input for first card
-  initializeInput();
+  // Load saved words from database
+  try {
+    words.value = await getAllWords();
+    debugInfo.value.dbWordsCount = words.value.length;
+    console.log(`Loaded ${words.value.length} words from database`);
+  } catch (error) {
+    console.error('Failed to load words from database:', error);
+    debugInfo.value.loadError = error instanceof Error ? error.message : String(error);
+  }
   
-  // Load dictionary asynchronously (don't block UI)
-  loadDictionary()
-    .then(data => {
-      dictionary.value = data;
-      console.log(`Dictionary loaded: ${data.length} entries`);
+  // Initialize dictionary database asynchronously
+  initializeDictionary()
+    .then(info => {
+      if (info) {
+        dictionaryInfo.value = info;
+        debugInfo.value.dictionaryLoaded = true;
+        debugInfo.value.dictionaryVersion = info.version;
+        debugInfo.value.dictionaryLogs = info.logs;
+        console.log('[App] Dictionary initialized:', info);
+      } else {
+        console.log('[App] Dictionary not available (browser mode)');
+        debugInfo.value.dictionaryLogs = ['[App] Browser mode - dictionary not available'];
+      }
     })
     .catch(err => {
-      console.warn('Dictionary not loaded, suggestions disabled:', err);
+      console.error('[App] Failed to initialize dictionary:', err);
+      const errorMsg = err instanceof Error ? err.message : String(err);
+      debugInfo.value.loadError = errorMsg;
+      
+      // Try to parse logs from error message if it starts with "LOGS:"
+      if (errorMsg.startsWith('LOGS:')) {
+        try {
+          const logsJson = errorMsg.substring(5);
+          const parsedLogs = JSON.parse(logsJson);
+          debugInfo.value.dictionaryLogs = parsedLogs;
+          console.log('[App] Extracted', parsedLogs.length, 'logs from error');
+        } catch (e) {
+          console.error('[App] Failed to parse logs from error:', e);
+          debugInfo.value.dictionaryLogs = [`[App ERROR] ${errorMsg}`];
+        }
+      } else {
+        debugInfo.value.dictionaryLogs = [`[App ERROR] ${errorMsg}`];
+      }
     });
+  
+  // Ensure minimum loading time of 300ms to prevent flash
+  const loadTime = Date.now() - loadStartTime;
+  const minLoadTime = 300;
+  if (loadTime < minLoadTime) {
+    await new Promise(resolve => setTimeout(resolve, minLoadTime - loadTime));
+  }
+  
+  // Mark as loaded
+  isLoading.value = false;
+  
+  // Initialize input for first card
+  if (words.value.length > 0) {
+    nextTick(() => initializeInput());
+  }
 });
 
 // Watch for card changes to reinitialize input
@@ -290,8 +372,16 @@ watch(currentIndex, () => {
 
 <template>
   <main class="min-h-screen bg-background p-4 flex flex-col transition-colors duration-300">
+    <!-- Loading state -->
+    <div v-if="isLoading" class="flex items-center justify-center min-h-screen">
+      <div class="text-center">
+        <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
+        <p class="text-muted-foreground">Loading...</p>
+      </div>
+    </div>
+
     <!-- Edit View -->
-    <div v-if="showEditView" class="max-w-2xl mx-auto w-full">
+    <div v-else-if="showEditView" class="max-w-2xl mx-auto w-full">
       <div class="flex items-center justify-between mb-6">
         <h1 class="text-2xl font-bold text-primary">Manage Words</h1>
         <Button variant="outline" size="icon" @click="toggleEditView" class="rounded-full">
@@ -310,8 +400,8 @@ watch(currentIndex, () => {
                 v-model="newWordOriginal" 
                 placeholder="German word (e.g., Haus)" 
                 @input="updateSuggestions"
-                @keyup.enter="document.getElementById('newWordTranslation')?.focus()"
-                @blur="setTimeout(() => showSuggestions = false, 200)"
+                @keyup.enter="focusTranslation"
+                @blur="delayHideSuggestions"
                 @focus="updateSuggestions"
                 class="text-lg"
               />
@@ -331,7 +421,6 @@ watch(currentIndex, () => {
                       {{ suggestion.gender === 'masc' ? 'der' : suggestion.gender === 'fem' ? 'die' : suggestion.gender === 'neut' ? 'das' : '' }}
                     </span>
                     {{ suggestion.word }}
-                    <span class="text-xs text-muted-foreground ml-2">({{ (suggestion.score * 100).toFixed(0) }}%)</span>
                   </div>
                   <div class="text-sm text-muted-foreground truncate">
                     {{ suggestion.meanings?.[0] || 'No translation' }}
@@ -343,7 +432,7 @@ watch(currentIndex, () => {
               id="newWordTranslation"
               v-model="newWordTranslation" 
               placeholder="English translation (e.g., House)" 
-              @keyup.enter="document.getElementById('newWordArticle')?.focus()"
+              @keyup.enter="focusArticle"
               class="text-lg"
             />
             <Input 
@@ -391,6 +480,21 @@ watch(currentIndex, () => {
     </div>
 
     <!-- Practice View -->
+    <div v-else>
+    <!-- No words message -->
+    <div v-if="words.length === 0" class="text-center max-w-md mx-auto">
+      <Card>
+        <CardContent class="p-8">
+          <h2 class="text-xl font-semibold mb-3">No words yet!</h2>
+          <p class="text-muted-foreground mb-4">Add some words to start practicing.</p>
+          <Button @click="toggleEditView" class="dark:bg-purple-500 dark:hover:bg-purple-600">
+            <Plus class="h-4 w-4 mr-2" /> Add Words
+          </Button>
+        </CardContent>
+      </Card>
+    </div>
+
+    <!-- Flashcard content -->
     <div v-else>
     <!-- Header -->
     <div class="text-center mb-6">
@@ -507,6 +611,28 @@ watch(currentIndex, () => {
           Great
         </Button>
       </div>
+
+      <!-- Debug Info -->
+      <Card class="mt-4">
+        <CardContent class="p-3">
+          <h3 class="text-xs font-semibold mb-2">Debug Info</h3>
+          <div class="text-xs text-muted-foreground space-y-1">
+            <div>Platform: <span class="font-mono">{{ debugInfo.platform }}</span></div>
+            <div>Words in DB: <span class="font-mono">{{ debugInfo.dbWordsCount }}</span></div>
+            <div>Dictionary Loaded: <span :class="debugInfo.dictionaryLoaded ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'" class="font-mono">{{ debugInfo.dictionaryLoaded ? 'YES' : 'NO' }}</span></div>
+            <div v-if="debugInfo.dictionaryVersion">Dictionary Version: <span class="font-mono">{{ debugInfo.dictionaryVersion }}</span></div>
+            <div v-if="debugInfo.loadError" class="text-red-600 dark:text-red-400 break-words mt-1">Error: {{ debugInfo.loadError }}</div>
+          </div>
+          
+          <div v-if="debugInfo.dictionaryLogs.length > 0" class="mt-3 border-t pt-2">
+            <div class="text-xs font-semibold mb-1">Dictionary Logs ({{ debugInfo.dictionaryLogs.length }}):</div>
+            <div class="max-h-60 overflow-y-auto bg-black/5 dark:bg-white/5 p-2 rounded">
+              <div v-for="(log, i) in debugInfo.dictionaryLogs" :key="i" class="text-[10px] font-mono break-words py-0.5 leading-tight" :class="log.includes('ERROR') ? 'text-red-600 dark:text-red-400 font-semibold' : log.includes('✓') || log.includes('Successfully') ? 'text-green-600 dark:text-green-400' : ''">{{ log }}</div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
     </div>
     </div>
   </main>
