@@ -2,7 +2,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Moon, Sun, Edit3, Upload, Copy, Check } from 'lucide-vue-next';
+import { Moon, Sun, Edit3 } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import DebugInfo from '@/components/DebugInfo.vue';
@@ -14,8 +14,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   (e: 'toggle-dark-mode'): void;
   (e: 'toggle-edit-view'): void;
-  (e: 'open-import-dialog'): void;
-  (e: 'export-words'): void;
   (e: 'reset-debug'): void;
 }>();
 
@@ -30,7 +28,6 @@ const showResult = ref(false);
 const inputRefs = ref<HTMLInputElement[]>([]);
 const checkedAnswer = ref('');
 const expectedAnswer = ref('');
-const exportSuccess = ref(false);
 
 // Current card from due words only
 const currentCard = computed(() => dueWords.value[currentIndex.value]);
@@ -332,12 +329,6 @@ const nextCardAfterIncorrect = () => {
     nextCard('bad');
 }
 
-const handleExport = () => {
-    emit('export-words');
-    exportSuccess.value = true;
-    setTimeout(() => exportSuccess.value = false, 3000);
-}
-
 onMounted(() => {
   // Add global keyboard listener for Enter key
   window.addEventListener('keydown', (e) => {
@@ -364,14 +355,6 @@ watch(currentIndex, () => {
     <div class="flex items-center justify-between max-w-md mx-auto mb-4">
       <h1 class="text-2xl font-bold text-primary">Flashcards</h1>
       <div class="flex gap-2">
-        <Button variant="outline" size="icon" @click="handleExport" class="rounded-full relative"
-          :title="exportSuccess ? 'Copied to clipboard!' : 'Export words to clipboard'">
-          <Check v-if="exportSuccess" class="h-5 w-5 text-green-600" />
-          <Copy v-else class="h-5 w-5" />
-        </Button>
-        <Button variant="outline" size="icon" @click="$emit('open-import-dialog')" class="rounded-full" title="Import words">
-          <Upload class="h-5 w-5" />
-        </Button>
         <Button variant="outline" size="icon" @click="$emit('toggle-edit-view')" class="rounded-full">
           <Edit3 class="h-5 w-5" />
         </Button>

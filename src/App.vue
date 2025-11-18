@@ -68,7 +68,7 @@ onMounted(async () => {
     </div>
 
     <!-- Edit View -->
-    <WordManager v-else-if="showEditView" @close="toggleEditView" />
+    <WordManager v-else-if="showEditView" @close="toggleEditView" @open-import-dialog="openImportDialog" />
 
     <!-- Practice View -->
     <div v-else>
