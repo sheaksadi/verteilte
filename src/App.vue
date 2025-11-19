@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus } from 'lucide-vue-next';
+import { Plus, Play, Check } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import FlashcardView from '@/components/FlashcardView.vue';
@@ -85,19 +85,31 @@ onMounted(async () => {
       </div>
 
       <!-- No cards due message -->
-      <div v-else-if="dueWords.length === 0" class="text-center max-w-md mx-auto">
-        <Card>
-          <CardContent class="p-8">
-            <h2 class="text-xl font-semibold mb-3">🎉 All caught up!</h2>
-            <p class="text-muted-foreground mb-2">No cards are due for review right now.</p>
-            <p class="text-sm text-muted-foreground mb-4">Come back later to review more cards.</p>
-            <Button @click="toggleEditView" variant="outline">
-              <Plus class="h-4 w-4 mr-2" /> Add More Words
-            </Button>
-          </CardContent>
+      <div v-else-if="dueWords.length === 0" class="text-center max-w-md mx-auto w-full">
+        <Card class="border-none shadow-lg overflow-hidden">
+          <div class="bg-gradient-to-br from-primary/5 to-purple-500/5 p-8 flex flex-col items-center">
+            <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
+              <Check class="w-8 h-8 text-primary" />
+            </div>
+            
+            <h2 class="text-2xl font-bold mb-2 text-primary">
+              All Caught Up!
+            </h2>
+            <p class="text-muted-foreground mb-8 max-w-xs mx-auto">
+              You've reviewed all your due cards. Great job keeping up with your streak!
+            </p>
+            
+            <div class="flex flex-col gap-3 w-full max-w-xs">
+              <Button @click="store.startKeepGoingMode()" class="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.02]">
+                <Play class="h-4 w-4 mr-2 fill-current" /> Keep Going (Review Next 5)
+              </Button>
+              
+              <Button @click="toggleEditView" variant="outline" class="w-full border-primary/20 hover:bg-primary/5">
+                <Plus class="h-4 w-4 mr-2" /> Add More Words
+              </Button>
+            </div>
+          </div>
         </Card>
-
-
       </div>
 
       <!-- Flashcard content -->

@@ -18,6 +18,9 @@ export const useWordStore = defineStore('words', () => {
         dictionaryLogs: [] as string[],
     });
 
+    const isKeepGoingMode = ref(false);
+    const keepGoingWords = ref<Word[]>([]);
+
     // Getters
     const filteredWords = computed(() => {
         if (!searchQuery.value.trim()) return words.value;
@@ -29,6 +32,9 @@ export const useWordStore = defineStore('words', () => {
     });
 
     const dueWords = computed(() => {
+        if (isKeepGoingMode.value) {
+            return keepGoingWords.value;
+        }
         const now = Date.now();
         return words.value.filter(word => word.nextReviewAt <= now);
     });
@@ -66,24 +72,37 @@ export const useWordStore = defineStore('words', () => {
     };
 
     const updateReview = async (id: number, scoreChange: number) => {
+        // In keep going mode, we don't change the score and don't update DB
+        if (isKeepGoingMode.value) {
+            // Remove the word from the local keepGoingWords list
+            keepGoingWords.value = keepGoingWords.value.filter(w => w.id !== id);
+
+            // If no more words in keep going mode, exit the mode
+            if (keepGoingWords.value.length === 0) {
+                isKeepGoingMode.value = false;
+            }
+            return;
+        }
+
         await updateWordReview(id, scoreChange);
-        // We don't reload words here immediately to allow animation to finish in the component
         // The component should call loadWords after animation
     };
 
     const updateReviewLater = async (id: number) => {
+        if (isKeepGoingMode.value) {
+            // In keep going mode, "Later" just moves it to the end of the current queue or removes it?
+            // Let's just move it to the end of the list so it comes up again
+            const wordIndex = keepGoingWords.value.findIndex(w => w.id === id);
+            if (wordIndex !== -1) {
+                const word = keepGoingWords.value[wordIndex];
+                keepGoingWords.value.splice(wordIndex, 1);
+                keepGoingWords.value.push(word);
+            }
+            return;
+        }
+
         // Set next review to 1 minute from now without changing score
         const oneMinuteFromNow = Date.now() + 60000; // 60 seconds
-        // We need to manually update this since we don't have a direct DB function for just updating time
-        // But we can use the database directly or add a helper. 
-        // For now, let's assume we can use a custom query or add a helper in database.ts
-        // Since I cannot modify database.ts easily without seeing it, I will use the existing pattern 
-        // or I might need to add a specific function to database.ts if updateWordReview doesn't support this.
-        // Wait, updateWordReview takes scoreChange. 
-        // Let's look at App.vue again. It uses `database.execute('UPDATE words SET nextReviewAt = ? WHERE id = ?', ...)`
-        // I should probably expose a method for this in the store that calls a new method in database.ts or does the raw query if I can import getDatabase.
-
-        // Ideally I should add `postponeWord` to database.ts, but for now I'll import getDatabase here as well.
         const { getDatabase } = await import('@/lib/database');
         const database = await getDatabase();
         await database.execute(
@@ -91,6 +110,21 @@ export const useWordStore = defineStore('words', () => {
             [oneMinuteFromNow, id]
         );
         await loadWords();
+    };
+
+    const startKeepGoingMode = async () => {
+        const now = Date.now();
+        // Find 5 words with closest nextReviewAt that are in the future
+        const futureWords = words.value
+            .filter(w => w.nextReviewAt > now)
+            .sort((a, b) => a.nextReviewAt - b.nextReviewAt)
+            .slice(0, 5);
+
+        if (futureWords.length === 0) return;
+
+        // Deep copy to avoid affecting the main list state
+        keepGoingWords.value = JSON.parse(JSON.stringify(futureWords));
+        isKeepGoingMode.value = true;
     };
 
     const resetWords = async () => {
@@ -124,11 +158,13 @@ export const useWordStore = defineStore('words', () => {
         debugInfo,
         filteredWords,
         dueWords,
+        isKeepGoingMode,
         loadWords,
         addWord,
         deleteWord,
         updateReview,
         updateReviewLater,
+        startKeepGoingMode,
         resetWords,
         initDictionary
     };

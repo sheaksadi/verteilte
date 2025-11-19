@@ -27,7 +27,10 @@ const showResult = ref(false);
 const inputRefs = ref<HTMLInputElement[]>([]);
 const checkedAnswer = ref('');
 const expectedAnswer = ref('');
+
 const justCorrectedIndex = ref<number | null>(null);
+const isTransitioning = ref(false);
+const nextCardTimeout = ref<NodeJS.Timeout | null>(null);
 
 // Current card from due words only
 const currentCard = computed(() => dueWords.value[currentIndex.value]);
@@ -52,6 +55,11 @@ const isCorrect = computed(() => {
 
 // Calculate next review time based on score change
 const calculateNextReview = (currentScore: number, scoreChange: number): number => {
+  // In keep going mode, score doesn't change
+  if (store.isKeepGoingMode) {
+    scoreChange = 0;
+  }
+
   const now = Date.now();
   const newScore = Math.max(0, currentScore + scoreChange);
 
@@ -211,12 +219,12 @@ const handleInput = (index: number, event: Event) => {
 
         // If correct AND card wasn't peeked at, auto-rate as great
         if (isAnswerCorrect && !hasPeeked.value) {
-          setTimeout(() => {
+          nextCardTimeout.value = setTimeout(() => {
             nextCard('great');
           }, 1000);
         } else {
           // If incorrect OR peeked, auto-rate as bad
-          setTimeout(() => {
+          nextCardTimeout.value = setTimeout(() => {
             nextCard('bad');
           }, 1000);
         }
@@ -324,44 +332,45 @@ const laterCard = async () => {
 };
 
 const nextCard = async (rating: 'bad' | 'good' | 'great') => {
-  if (!currentCard.value?.id) return;
+  if (!currentCard.value?.id || isTransitioning.value) return;
+  
+  isTransitioning.value = true;
+  
+  // Clear any pending auto-advance timer
+  if (nextCardTimeout.value) {
+    clearTimeout(nextCardTimeout.value);
+    nextCardTimeout.value = null;
+  }
 
-  // Update score based on rating
-  const scoreChange = rating === 'bad' ? -2 : rating === 'good' ? 1 : 2;
+  try {
+    // Capture values before waiting
+    const cardId = currentCard.value.id;
+    const scoreChange = rating === 'bad' ? -2 : rating === 'good' ? 1 : 2;
 
-  await store.updateReview(currentCard.value.id, scoreChange);
-
-  // First flip back to front if currently flipped
-  if (isFlipped.value) {
-    isFlipped.value = false;
-    // Wait for flip animation to complete before loading next card
-    setTimeout(async () => {
-      // Reload words to get updated order
-      await store.loadWords();
-
-      // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
-      currentIndex.value = 0;
-
-      // Clear state after flip completes
-      userInput.value = new Array(answerLength.value).fill('');
-      showResult.value = false;
-      checkedAnswer.value = '';
-      expectedAnswer.value = '';
-      initializeInput();
-    }, 700); // Match the transition duration
-  } else {
+    // First flip back to front if currently flipped
+    if (isFlipped.value) {
+      isFlipped.value = false;
+      // Wait for flip animation to complete before updating data
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
+    
+    // NOW update the data, which might cause the current card to disappear from dueWords
+    await store.updateReview(cardId, scoreChange);
+    
     // Reload words to get updated order
     await store.loadWords();
 
     // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
     currentIndex.value = 0;
 
-    // If already on front, clear and initialize immediately
+    // Clear state after flip completes
     userInput.value = new Array(answerLength.value).fill('');
     showResult.value = false;
     checkedAnswer.value = '';
     expectedAnswer.value = '';
     initializeInput();
+  } finally {
+    isTransitioning.value = false;
   }
 };
 
@@ -418,7 +427,11 @@ watch(currentIndex, () => {
           <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
             <!-- Score and Last Reviewed in corners -->
             <div class="absolute top-2 left-2 text-xs text-muted-foreground">
-              Score: {{ currentCard?.score }}
+              <span v-if="store.isKeepGoingMode" class="text-amber-600 font-medium flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                No Score Mode
+              </span>
+              <span v-else>Score: {{ currentCard?.score }}</span>
             </div>
             <div class="absolute top-2 right-2 text-xs text-muted-foreground text-right">
               {{ lastReviewedText }}
@@ -472,7 +485,11 @@ watch(currentIndex, () => {
           <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
             <!-- Score and Last Reviewed in corners -->
             <div class="absolute top-2 left-2 text-xs text-muted-foreground">
-              Score: {{ currentCard?.score }}
+              <span v-if="store.isKeepGoingMode" class="text-amber-600 font-medium flex items-center gap-1">
+                <span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
+                No Score Mode
+              </span>
+              <span v-else>Score: {{ currentCard?.score }}</span>
             </div>
             <div class="absolute top-2 right-2 text-xs text-muted-foreground text-right">
               {{ lastReviewedText }}
