@@ -1,7 +1,9 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, type Word } from '@/lib/database';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, type Word } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 export const useWordStore = defineStore('words', () => {
     // State
@@ -21,6 +23,15 @@ export const useWordStore = defineStore('words', () => {
     const isKeepGoingMode = ref(false);
     const keepGoingWords = ref<Word[]>([]);
 
+    // Auth State
+    const user = ref<{ id: string; username: string } | null>(null);
+    const token = ref<string | null>(localStorage.getItem('token'));
+    const lastSyncTimestamp = ref<number>(parseInt(localStorage.getItem('lastSyncTimestamp') || '0'));
+    const isSyncing = ref(false);
+
+    // Config State
+    const apiUrl = ref<string>(localStorage.getItem('apiUrl') || API_URL);
+
     // Getters
     const filteredWords = computed(() => {
         if (!searchQuery.value.trim()) return words.value;
@@ -39,7 +50,16 @@ export const useWordStore = defineStore('words', () => {
         return words.value.filter(word => word.nextReviewAt <= now);
     });
 
+    const isLoggedIn = computed(() => !!token.value);
+
     // Actions
+    const setApiUrl = (url: string) => {
+        // Remove trailing slash if present
+        const cleanUrl = url.replace(/\/$/, '');
+        apiUrl.value = cleanUrl;
+        localStorage.setItem('apiUrl', cleanUrl);
+    };
+
     const loadWords = async () => {
         try {
             words.value = await getAllWords();
@@ -52,7 +72,7 @@ export const useWordStore = defineStore('words', () => {
 
     const addWord = async (original: string, translation: string, article: string) => {
         const now = Date.now();
-        const newWord: Omit<Word, 'id'> = {
+        const newWord: Omit<Word, 'id' | 'updatedAt' | 'deletedAt'> = {
             original: original.trim(),
             translation: translation.trim(),
             article: article.trim(),
@@ -64,14 +84,16 @@ export const useWordStore = defineStore('words', () => {
 
         await dbAddWord(newWord);
         await loadWords();
+        if (isLoggedIn.value) sync();
     };
 
-    const deleteWord = async (id: number) => {
+    const deleteWord = async (id: string) => {
         await dbDeleteWord(id);
         await loadWords();
+        if (isLoggedIn.value) sync();
     };
 
-    const updateReview = async (id: number, scoreChange: number) => {
+    const updateReview = async (id: string, scoreChange: number) => {
         // In keep going mode, we don't change the score and don't update DB
         if (isKeepGoingMode.value) {
             // Remove the word from the local keepGoingWords list
@@ -86,12 +108,12 @@ export const useWordStore = defineStore('words', () => {
 
         await updateWordReview(id, scoreChange);
         // The component should call loadWords after animation
+        // We can trigger sync in background
+        if (isLoggedIn.value) sync();
     };
 
-    const updateReviewLater = async (id: number) => {
+    const updateReviewLater = async (id: string) => {
         if (isKeepGoingMode.value) {
-            // In keep going mode, "Later" just moves it to the end of the current queue or removes it?
-            // Let's just move it to the end of the list so it comes up again
             const wordIndex = keepGoingWords.value.findIndex(w => w.id === id);
             if (wordIndex !== -1) {
                 const word = keepGoingWords.value[wordIndex];
@@ -105,11 +127,15 @@ export const useWordStore = defineStore('words', () => {
         const oneMinuteFromNow = Date.now() + 60000; // 60 seconds
         const { getDatabase } = await import('@/lib/database');
         const database = await getDatabase();
-        await database.execute(
-            'UPDATE words SET nextReviewAt = ? WHERE id = ?',
-            [oneMinuteFromNow, id]
-        );
+        if (database) {
+            await database.execute(
+                'UPDATE words SET nextReviewAt = ?, updatedAt = ? WHERE id = ?',
+                [oneMinuteFromNow, Date.now(), id]
+            );
+        }
+
         await loadWords();
+        if (isLoggedIn.value) sync();
     };
 
     const startKeepGoingMode = async () => {
@@ -130,6 +156,7 @@ export const useWordStore = defineStore('words', () => {
     const resetWords = async () => {
         await resetAllWords();
         await loadWords();
+        if (isLoggedIn.value) sync();
     };
 
     const initDictionary = async () => {
@@ -150,6 +177,109 @@ export const useWordStore = defineStore('words', () => {
         }
     };
 
+    // Auth Actions
+    const login = async (username: string, password: string) => {
+        try {
+            const res = await fetch(`${apiUrl.value}/auth/login`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (!res.ok) throw new Error('Login failed');
+
+            const data = await res.json();
+            token.value = data.token;
+            user.value = data.user;
+            localStorage.setItem('token', data.token);
+
+            await sync();
+            return true;
+        } catch (e) {
+            console.error(e);
+            return false;
+        }
+    };
+
+    const register = async (username: string, password: string) => {
+        try {
+            const res = await fetch(`${apiUrl.value}/auth/register`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (!res.ok) throw new Error('Registration failed');
+
+            const data = await res.json();
+            token.value = data.token;
+            user.value = data.user;
+            localStorage.setItem('token', data.token);
+
+            await sync();
+            return true;
+        } catch (e) {
+            console.error(e);
+            return false;
+        }
+    };
+
+    const logout = () => {
+        token.value = null;
+        user.value = null;
+        localStorage.removeItem('token');
+        localStorage.removeItem('lastSyncTimestamp');
+        lastSyncTimestamp.value = 0;
+    };
+
+    const sync = async () => {
+        if (!token.value || isSyncing.value) return;
+        isSyncing.value = true;
+
+        try {
+            // 1. Get local changes
+            const localChanges = await getWordsForSync(lastSyncTimestamp.value);
+
+            // 2. Send to server
+            const res = await fetch(`${apiUrl.value}/sync`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token.value}`
+                },
+                body: JSON.stringify({
+                    lastSyncTimestamp: lastSyncTimestamp.value,
+                    changes: localChanges
+                })
+            });
+
+            if (!res.ok) {
+                if (res.status === 401 || res.status === 403) {
+                    logout();
+                    return;
+                }
+                throw new Error('Sync failed');
+            }
+
+            const data = await res.json();
+
+            // 3. Apply server changes
+            if (data.changes && data.changes.length > 0) {
+                await upsertWords(data.changes);
+                await loadWords();
+            }
+
+            // 4. Update timestamp
+            lastSyncTimestamp.value = data.timestamp;
+            localStorage.setItem('lastSyncTimestamp', data.timestamp.toString());
+
+        } catch (e) {
+            console.error('Sync error:', e);
+        } finally {
+            isSyncing.value = false;
+        }
+    };
+
     return {
         words,
         searchQuery,
@@ -159,6 +289,10 @@ export const useWordStore = defineStore('words', () => {
         filteredWords,
         dueWords,
         isKeepGoingMode,
+        user,
+        isLoggedIn,
+        isSyncing,
+        apiUrl,
         loadWords,
         addWord,
         deleteWord,
@@ -166,6 +300,11 @@ export const useWordStore = defineStore('words', () => {
         updateReviewLater,
         startKeepGoingMode,
         resetWords,
-        initDictionary
+        initDictionary,
+        login,
+        register,
+        logout,
+        sync,
+        setApiUrl
     };
 });

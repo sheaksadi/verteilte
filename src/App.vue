@@ -2,18 +2,20 @@
 import { ref, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Play, Check } from 'lucide-vue-next';
+import { Plus, Play, Check, User, RefreshCw, LogOut } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import FlashcardView from '@/components/FlashcardView.vue';
 import WordManager from '@/components/WordManager.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
+import Auth from '@/components/Auth.vue';
 
 const store = useWordStore();
-const { words, dueWords, isLoading, debugInfo } = storeToRefs(store);
+const { words, dueWords, isLoading, debugInfo, isLoggedIn, user, isSyncing } = storeToRefs(store);
 
 const showEditView = ref(false);
 const showImportDialog = ref(false);
+const showAuthDialog = ref(false);
 const isDarkMode = ref(false);
 
 const toggleEditView = () => {
@@ -31,6 +33,18 @@ const toggleDarkMode = () => {
 
 const openImportDialog = () => {
   showImportDialog.value = true;
+};
+
+const handleSyncClick = () => {
+  if (isLoggedIn.value) {
+    store.sync();
+  } else {
+    showAuthDialog.value = true;
+  }
+};
+
+const handleLogout = () => {
+  store.logout();
 };
 
 onMounted(async () => {
@@ -57,7 +71,18 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-background p-4 flex flex-col transition-colors duration-300">
+  <main class="min-h-screen bg-background p-4 flex flex-col transition-colors duration-300 relative">
+    <!-- User/Sync Controls (Top Left) -->
+    <div class="absolute top-4 left-4 z-10 flex gap-2">
+      <Button variant="outline" size="icon" @click="handleSyncClick" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" :title="isLoggedIn ? 'Sync now' : 'Login to sync'">
+        <RefreshCw v-if="isLoggedIn" class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />
+        <User v-else class="h-4 w-4" />
+      </Button>
+      <Button v-if="isLoggedIn" variant="outline" size="icon" @click="handleLogout" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" title="Logout">
+        <LogOut class="h-4 w-4" />
+      </Button>
+    </div>
+
     <!-- Loading state -->
     <div v-if="isLoading" class="flex items-center justify-center min-h-screen">
       <div class="text-center">
@@ -72,7 +97,7 @@ onMounted(async () => {
     <!-- Practice View -->
     <div v-else>
       <!-- No words message -->
-      <div v-if="words.length === 0" class="text-center max-w-md mx-auto">
+      <div v-if="words.length === 0" class="text-center max-w-md mx-auto mt-20">
         <Card>
           <CardContent class="p-8">
             <h2 class="text-xl font-semibold mb-3">No words yet!</h2>
@@ -85,7 +110,7 @@ onMounted(async () => {
       </div>
 
       <!-- No cards due message -->
-      <div v-else-if="dueWords.length === 0" class="text-center max-w-md mx-auto w-full">
+      <div v-else-if="dueWords.length === 0" class="text-center max-w-md mx-auto w-full mt-20">
         <Card class="border-none shadow-lg overflow-hidden">
           <div class="bg-gradient-to-br from-primary/5 to-purple-500/5 p-8 flex flex-col items-center">
             <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
@@ -123,5 +148,8 @@ onMounted(async () => {
 
     <!-- Import Dialog -->
     <ImportDialog v-if="showImportDialog" @close="showImportDialog = false" />
+    
+    <!-- Auth Dialog -->
+    <Auth v-if="showAuthDialog" @close="showAuthDialog = false" />
   </main>
 </template>
