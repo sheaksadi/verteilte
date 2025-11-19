@@ -3,7 +3,7 @@ import { ref, nextTick } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus, X, Search, Trash2, Upload, Copy, Check } from 'lucide-vue-next';
+import { Plus, ArrowLeft, Search, Trash2, Upload, Copy, Check } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { searchDictionary, searchByMeaning, type DictionaryEntry } from '@/lib/dictionary';
@@ -158,8 +158,8 @@ const formatNextDue = (timestamp: number): string => {
         <Button variant="outline" size="icon" @click="$emit('open-import-dialog')" class="rounded-full h-10 w-10 bg-background hover:bg-accent" title="Import words">
           <Upload class="h-5 w-5" />
         </Button>
-        <Button variant="outline" size="icon" @click="$emit('close')" class="rounded-full h-10 w-10 bg-background hover:bg-accent">
-          <X class="h-5 w-5" />
+        <Button variant="outline" size="icon" @click="$emit('close')" class="rounded-full h-10 w-10 bg-background hover:bg-accent" title="Back">
+          <ArrowLeft class="h-5 w-5" />
         </Button>
       </div>
     </div>

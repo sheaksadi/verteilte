@@ -8,7 +8,6 @@ import { storeToRefs } from 'pinia';
 import FlashcardView from '@/components/FlashcardView.vue';
 import WordManager from '@/components/WordManager.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
-import DebugInfo from '@/components/DebugInfo.vue';
 
 const store = useWordStore();
 const { words, dueWords, isLoading, debugInfo } = storeToRefs(store);
@@ -98,8 +97,7 @@ onMounted(async () => {
           </CardContent>
         </Card>
 
-        <!-- Debug Info on All Caught Up Screen -->
-        <DebugInfo />
+
       </div>
 
       <!-- Flashcard content -->

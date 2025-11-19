@@ -5,7 +5,6 @@ import { Button } from '@/components/ui/button';
 import { Moon, Sun, Edit3 } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
-import DebugInfo from '@/components/DebugInfo.vue';
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -486,8 +485,7 @@ watch(currentIndex, () => {
       </div>
     </div>
 
-    <!-- Debug Info -->
-    <DebugInfo />
+
   </div>
 </template>
 
