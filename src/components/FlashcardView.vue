@@ -27,6 +27,7 @@ const showResult = ref(false);
 const inputRefs = ref<HTMLInputElement[]>([]);
 const checkedAnswer = ref('');
 const expectedAnswer = ref('');
+const justCorrectedIndex = ref<number | null>(null);
 
 // Current card from due words only
 const currentCard = computed(() => dueWords.value[currentIndex.value]);
@@ -135,6 +136,47 @@ const handleInput = (index: number, event: Event) => {
   if (value) {
     // Take only the last character typed
     const char = value.slice(-1);
+    
+    // Check for smart umlaut substitution
+    // We look for patterns: ae -> ä, oe -> ö, ue -> ü, ss -> ß
+    // BUT only if the expected word actually has that umlaut at the previous position
+    if (index > 0 && ['e', 'E', 's', 'S'].includes(char)) {
+      const prevChar = userInput.value[index - 1];
+      if (prevChar) {
+        let potentialUmlaut = '';
+        const pair = (prevChar + char).toLowerCase();
+        
+        if (pair === 'ae') potentialUmlaut = 'ä';
+        else if (pair === 'oe') potentialUmlaut = 'ö';
+        else if (pair === 'ue') potentialUmlaut = 'ü';
+        else if (pair === 'ss') potentialUmlaut = 'ß';
+
+        if (potentialUmlaut) {
+          // Check if the expected word has this umlaut at the PREVIOUS index
+          const expectedWord = currentCard.value?.original || '';
+          const expectedChar = expectedWord[index - 1]?.toLowerCase();
+
+          if (expectedChar === potentialUmlaut) {
+            // Perform substitution
+            userInput.value[index - 1] = potentialUmlaut;
+            userInput.value[index] = ''; // Clear current input
+            
+            // Visual feedback
+            justCorrectedIndex.value = index - 1;
+            setTimeout(() => {
+              justCorrectedIndex.value = null;
+            }, 500);
+
+            // Keep focus on current input so user can type next char
+            // We don't advance to next input because we effectively "consumed" the current keystroke
+            // into the previous character
+            target.value = '';
+            return;
+          }
+        }
+      }
+    }
+
     userInput.value[index] = char;
 
     // Move to next input if not at the end
@@ -363,9 +405,6 @@ watch(currentIndex, () => {
         </Button>
       </div>
     </div>
-    <p class="text-sm text-muted-foreground">
-      Card {{ currentIndex + 1 }} of {{ dueWords.length }}
-    </p>
   </div>
 
   <!-- Flashcard -->
@@ -403,7 +442,8 @@ watch(currentIndex, () => {
                   :class="{
                     'border-green-500 ring-2 ring-green-500 dark:border-green-600 dark:ring-green-600 bg-green-50 dark:bg-green-950': showResult && isCorrect,
                     'border-red-500 ring-2 ring-red-500 dark:border-red-600 dark:ring-red-600 bg-red-50 dark:bg-red-950': showResult && !isCorrect && userInput[index],
-                    'border-muted-foreground/20 focus:border-primary focus:ring-2 focus:ring-primary': !showResult
+                    'border-muted-foreground/20 focus:border-primary focus:ring-2 focus:ring-primary': !showResult,
+                    'animate-flash-success': justCorrectedIndex === index
                   }" />
               </div>
 
@@ -415,6 +455,14 @@ watch(currentIndex, () => {
               <p v-if="showResult" class="text-xs text-muted-foreground mt-2">
                 Your answer: "{{ checkedAnswer }}" | Expected: "{{ currentCard?.original }}"
               </p>
+            </div>
+
+            <!-- Progress Indicator -->
+            <div class="absolute bottom-4 left-0 right-0 flex justify-center gap-1 px-8">
+              <div v-for="(_, index) in dueWords" :key="index" class="h-1.5 rounded-full transition-all duration-300"
+                :class="[
+                  index === currentIndex ? 'w-6 bg-primary' : 'w-1.5 bg-muted-foreground/20'
+                ]"></div>
             </div>
           </CardContent>
         </div>
@@ -458,6 +506,14 @@ watch(currentIndex, () => {
             <p class="text-sm text-muted-foreground mt-4 transition-all duration-300">
               Tap to flip back
             </p>
+
+            <!-- Progress Indicator -->
+            <div class="absolute bottom-4 left-0 right-0 flex justify-center gap-1 px-8">
+              <div v-for="(_, index) in dueWords" :key="index" class="h-1.5 rounded-full transition-all duration-300"
+                :class="[
+                  index === currentIndex ? 'w-6 bg-primary' : 'w-1.5 bg-muted-foreground/20'
+                ]"></div>
+            </div>
           </CardContent>
         </div>
       </Card>
@@ -505,5 +561,20 @@ watch(currentIndex, () => {
 .backface-hidden {
   backface-visibility: hidden;
   -webkit-backface-visibility: hidden;
+}
+
+@keyframes flash-success {
+  0% {
+    background-color: rgba(34, 197, 94, 0.2);
+    transform: scale(1.1);
+  }
+  100% {
+    background-color: transparent;
+    transform: scale(1);
+  }
+}
+
+.animate-flash-success {
+  animation: flash-success 0.5s ease-out;
 }
 </style>
