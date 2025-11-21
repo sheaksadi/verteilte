@@ -9,6 +9,7 @@ import FlashcardView from '@/components/FlashcardView.vue';
 import WordManager from '@/components/WordManager.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
 import Auth from '@/components/Auth.vue';
+import DebugInfo from '@/components/DebugInfo.vue';
 
 const store = useWordStore();
 const { words, dueWords, isLoading, debugInfo, isLoggedIn, user, isSyncing } = storeToRefs(store);
@@ -16,6 +17,7 @@ const { words, dueWords, isLoading, debugInfo, isLoggedIn, user, isSyncing } = s
 const showEditView = ref(false);
 const showImportDialog = ref(false);
 const showAuthDialog = ref(false);
+const showDebug = ref(false);
 const isDarkMode = ref(false);
 
 const toggleEditView = () => {
@@ -143,7 +145,10 @@ onMounted(async () => {
         @toggle-dark-mode="toggleDarkMode"
         @toggle-edit-view="toggleEditView"
         @open-import-dialog="openImportDialog"
+        @toggle-debug="showDebug = !showDebug"
       />
+      
+      <DebugInfo v-if="showDebug" />
     </div>
 
     <!-- Import Dialog -->

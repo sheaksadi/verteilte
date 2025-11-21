@@ -2,22 +2,19 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Moon, Sun, Edit3 } from 'lucide-vue-next';
+import { Moon, Sun, Edit3, Bug } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
+import { impactFeedback, notificationFeedback, vibrate } from '@tauri-apps/plugin-haptics';
 
 const props = defineProps<{
   isDarkMode: boolean;
 }>();
 
-const emit = defineEmits<{
-  (e: 'toggle-dark-mode'): void;
-  (e: 'toggle-edit-view'): void;
-  (e: 'reset-debug'): void;
-}>();
+const emit = defineEmits(['toggle-dark-mode', 'toggle-edit-view', 'open-import-dialog', 'toggle-debug']);
 
 const store = useWordStore();
-const { dueWords, debugInfo } = storeToRefs(store);
+const { words, dueWords } = storeToRefs(store);
 
 const currentIndex = ref(0);
 const isFlipped = ref(false);
@@ -245,6 +242,20 @@ const handleInput = (index: number, event: Event) => {
       // Check immediately and store the result
       const isAnswerCorrect = finalAnswer.toLowerCase().trim() === expectedWord.toLowerCase().trim();
 
+      if (isAnswerCorrect) {
+        // Custom double vibration pattern: 2ms, delay, 2ms
+        const triggerHaptics = async () => {
+          try {
+            await vibrate(2);
+            await new Promise(resolve => setTimeout(resolve, 50));
+            await vibrate(2);
+          } catch (e) {
+            console.debug('Haptics not available:', e);
+          }
+        };
+        triggerHaptics();
+      }
+
       showResult.value = true;
 
       // Then trigger flip
@@ -464,13 +475,20 @@ watch(currentIndex, () => {
   <div class="text-center mb-6">
     <div class="flex items-center justify-between max-w-md mx-auto mb-4">
       <h1 class="text-2xl font-bold text-primary">Flashcards</h1>
+      
       <div class="flex gap-2">
-        <Button variant="outline" size="icon" @click="$emit('toggle-edit-view')" class="rounded-full">
-          <Edit3 class="h-5 w-5" />
-        </Button>
-        <Button variant="outline" size="icon" @click="$emit('toggle-dark-mode')" class="rounded-full">
+        <Button variant="ghost" size="icon" @click="emit('toggle-dark-mode')" class="rounded-full">
           <Sun v-if="isDarkMode" class="h-5 w-5" />
           <Moon v-else class="h-5 w-5" />
+        </Button>
+        <Button variant="ghost" size="icon" @click="emit('toggle-debug')" class="rounded-full text-muted-foreground hover:text-foreground">
+          <Bug class="h-5 w-5" />
+        </Button>
+        <Button variant="outline" size="sm" @click="emit('open-import-dialog')" class="hidden sm:flex">
+          Import
+        </Button>
+        <Button @click="emit('toggle-edit-view')" variant="outline" size="sm">
+          <Edit3 class="h-4 w-4 mr-2" /> Manage Words
         </Button>
       </div>
     </div>
