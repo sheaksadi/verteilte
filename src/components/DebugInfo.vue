@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -12,6 +12,12 @@ import {
   vibrate 
 } from '@tauri-apps/plugin-haptics';
 
+const props = defineProps<{
+  cardHeight: number;
+}>();
+
+const emit = defineEmits(['update:cardHeight']);
+
 const store = useWordStore();
 const { debugInfo } = storeToRefs(store);
 
@@ -20,6 +26,11 @@ const hapticType = ref<'impact' | 'notification' | 'selection' | 'vibrate'>('imp
 const impactStyle = ref<'light' | 'medium' | 'heavy' | 'soft' | 'rigid'>('medium');
 const notificationType = ref<'success' | 'warning' | 'error'>('success');
 const vibrateDuration = ref(200);
+
+const localCardHeight = computed({
+  get: () => props.cardHeight,
+  set: (val) => emit('update:cardHeight', Number(val))
+});
 
 const triggerHaptics = async () => {
   try {
@@ -65,6 +76,24 @@ const resetAllCardsDebug = async () => {
           debugInfo.dictionaryVersion }}</span></div>
         <div v-if="debugInfo.loadError" class="text-red-600 dark:text-red-400 break-words mt-1">Error: {{
           debugInfo.loadError }}</div>
+      </div>
+
+      <!-- UI Settings -->
+      <div class="mt-3 border-t pt-2">
+        <h4 class="text-xs font-semibold mb-2">UI Settings</h4>
+        <div class="space-y-2">
+          <div class="flex items-center justify-between text-xs">
+            <span>Card Height: {{ localCardHeight }}rem</span>
+          </div>
+          <input 
+            type="range" 
+            v-model="localCardHeight" 
+            min="20" 
+            max="50" 
+            step="1"
+            class="w-full h-2 bg-secondary rounded-lg appearance-none cursor-pointer"
+          />
+        </div>
       </div>
 
       <!-- Haptics Debugger -->

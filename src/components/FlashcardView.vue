@@ -2,23 +2,30 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Moon, Sun, Edit3, Bug } from 'lucide-vue-next';
+import { Moon, Sun, Edit3, Bug, Info } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
-import { impactFeedback, notificationFeedback, vibrate } from '@tauri-apps/plugin-haptics';
+import { impactFeedback, vibrate } from '@tauri-apps/plugin-haptics';
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from '@/components/ui/popover';
 
 const props = defineProps<{
   isDarkMode: boolean;
+  cardHeight: number;
 }>();
 
 const emit = defineEmits(['toggle-dark-mode', 'toggle-edit-view', 'open-import-dialog', 'toggle-debug']);
 
 const store = useWordStore();
-const { words, dueWords } = storeToRefs(store);
+const { dueWords } = storeToRefs(store);
 
 const currentIndex = ref(0);
 const isFlipped = ref(false);
 const hasPeeked = ref(false);
+const hasFailed = ref(false); // Tracks if the user got it wrong or flipped
 const userInput = ref<string[]>([]);
 const showResult = ref(false);
 const inputRefs = ref<HTMLInputElement[]>([]);
@@ -64,19 +71,13 @@ const calculateNextReview = (currentScore: number, scoreChange: number): number 
   let nextReview = now;
   
   if (newScore === 0) {
-    nextReview = now + 10 * 60 * 1000;
+    nextReview = now + 10 * 60 * 1000; // 10 minutes
   } else {
     const baseInterval = 60 * 60 * 1000; // 1 hour base
     const interval = baseInterval * Math.pow(2.5, newScore - 1);
     nextReview = now + interval;
   }
-
-  // If it was a "Bad" rating (scoreChange < 0), apply fallback logic
-  if (scoreChange < 0) {
-    const fallbackInterval = 10 * 60 * 1000 * (currentScore + 1);
-    nextReview = Math.max(nextReview, now + fallbackInterval);
-  }
-
+  
   return nextReview;
 };
 
@@ -93,23 +94,22 @@ const formatInterval = (ms: number): string => {
   return `${seconds}s`;
 };
 
-// Calculate intervals for button display
-const badInterval = computed(() => {
-  if (!currentCard.value) return '';
-  const nextReview = calculateNextReview(currentCard.value.score, -2);
-  return formatInterval(nextReview - Date.now());
-});
-
-const goodInterval = computed(() => {
-  if (!currentCard.value) return '';
-  const nextReview = calculateNextReview(currentCard.value.score, 1);
-  return formatInterval(nextReview - Date.now());
-});
-
-const greatInterval = computed(() => {
-  if (!currentCard.value) return '';
-  const nextReview = calculateNextReview(currentCard.value.score, 2);
-  return formatInterval(nextReview - Date.now());
+// Generate intervals for scores 0-10
+const scoreIntervals = computed(() => {
+  const intervals = [];
+  for (let i = 0; i <= 10; i++) {
+    // Calculate what the interval would be if we had this score
+    // We use the formula directly:
+    let intervalMs = 0;
+    if (i === 0) {
+      intervalMs = 10 * 60 * 1000;
+    } else {
+      const baseInterval = 60 * 60 * 1000;
+      intervalMs = baseInterval * Math.pow(2.5, i - 1);
+    }
+    intervals.push({ score: i, interval: formatInterval(intervalMs) });
+  }
+  return intervals;
 });
 
 // Format last reviewed time
@@ -144,6 +144,7 @@ const initializeInput = () => {
   userInput.value = new Array(answerLength.value).fill('');
   showResult.value = false;
   hasPeeked.value = false;
+  hasFailed.value = false;
   checkedAnswer.value = '';
   expectedAnswer.value = '';
   lastFocusedIndex.value = 0;
@@ -178,8 +179,6 @@ const handleInput = (index: number, event: Event) => {
     const char = value.slice(-1);
     
     // Check for smart umlaut substitution
-    // We look for patterns: ae -> ä, oe -> ö, ue -> ü, ss -> ß
-    // BUT only if the expected word actually has that umlaut at the previous position
     if (index > 0 && ['e', 'E', 's', 'S'].includes(char)) {
       const prevChar = userInput.value[index - 1];
       if (prevChar) {
@@ -192,28 +191,20 @@ const handleInput = (index: number, event: Event) => {
         else if (pair === 'ss') potentialUmlaut = 'ß';
 
         if (potentialUmlaut) {
-          // Check if the expected word has this umlaut at the PREVIOUS index
           const expectedWord = currentCard.value?.original || '';
           const expectedChar = expectedWord[index - 1]?.toLowerCase();
 
           if (expectedChar === potentialUmlaut) {
-            // Perform substitution
             userInput.value[index - 1] = potentialUmlaut;
-            userInput.value[index] = ''; // Clear current input
+            userInput.value[index] = ''; 
             
-            // Visual feedback
             justCorrectedIndex.value = index - 1;
-            
-            // Haptic feedback
             impactFeedback('light').catch(e => console.debug('Haptics not available:', e));
 
             setTimeout(() => {
               justCorrectedIndex.value = null;
             }, 500);
 
-            // Keep focus on current input so user can type next char
-            // We don't advance to next input because we effectively "consumed" the current keystroke
-            // into the previous character
             target.value = '';
             return;
           }
@@ -225,12 +216,10 @@ const handleInput = (index: number, event: Event) => {
 
     // Move to next input if not at the end
     if (index < answerLength.value - 1) {
-      // Use nextTick instead of setTimeout for better Vue reactivity
       nextTick(() => {
         const nextInput = inputRefs.value[index + 1];
         if (nextInput) {
           nextInput.focus();
-          // Ensure cursor is at the end (mobile keyboard fix)
           nextInput.setSelectionRange(nextInput.value.length, nextInput.value.length);
         }
       });
@@ -239,7 +228,6 @@ const handleInput = (index: number, event: Event) => {
       const finalAnswer = userInput.value.join('');
       checkedAnswer.value = finalAnswer;
 
-      // Also store what we're checking against to prevent card changes
       const expectedWord = currentCard.value?.original || '';
       expectedAnswer.value = expectedWord;
 
@@ -247,7 +235,6 @@ const handleInput = (index: number, event: Event) => {
       const isAnswerCorrect = finalAnswer.toLowerCase().trim() === expectedWord.toLowerCase().trim();
 
       if (isAnswerCorrect) {
-        // Custom double vibration pattern: 2ms, delay, 2ms
         const triggerHaptics = async () => {
           try {
             await vibrate(2);
@@ -258,6 +245,9 @@ const handleInput = (index: number, event: Event) => {
           }
         };
         triggerHaptics();
+      } else {
+        // Wrong answer
+        hasFailed.value = true;
       }
 
       showResult.value = true;
@@ -269,27 +259,22 @@ const handleInput = (index: number, event: Event) => {
 
         // Auto-advance logic
         if (isAnswerCorrect) {
-          // If peeked, it's bad. If not peeked, it's great.
-          const rating = hasPeeked.value ? 'bad' : 'great';
-          
           nextCardTimeout.value = setTimeout(() => {
-            nextCard(rating);
+            nextCard();
           }, 1000);
         }
-        // If incorrect, we DO NOT auto-advance. User must press Enter or click a button.
+        // If incorrect, we DO NOT auto-advance. User must retry.
       }, 200);
     }
   }
 };
 
 const handleKeydown = (index: number, event: KeyboardEvent) => {
-  // Don't allow any keyboard input if we're checking/showing result
   if (showResult.value) {
     event.preventDefault();
     return;
   }
 
-  // Handle backspace
   if (event.key === 'Backspace') {
     if (!userInput.value[index] && index > 0) {
       event.preventDefault();
@@ -305,7 +290,6 @@ const handleKeydown = (index: number, event: KeyboardEvent) => {
 };
 
 const handlePaste = (event: ClipboardEvent) => {
-  // Don't allow paste if we're checking/showing result
   if (showResult.value) {
     event.preventDefault();
     return;
@@ -321,7 +305,6 @@ const handlePaste = (event: ClipboardEvent) => {
     }
   });
 
-  // Focus the next empty input or the last one
   const nextEmptyIndex = userInput.value.findIndex(c => !c);
   const focusIndex = nextEmptyIndex >= 0 ? nextEmptyIndex : answerLength.value - 1;
 
@@ -332,11 +315,16 @@ const handlePaste = (event: ClipboardEvent) => {
       targetInput.select();
     }
 
-    // If all filled, trigger spell check
     if (nextEmptyIndex === -1) {
       const finalAnswer = userInput.value.join('');
       checkedAnswer.value = finalAnswer;
       expectedAnswer.value = currentCard.value?.original || '';
+      
+      const isAnswerCorrect = finalAnswer.toLowerCase().trim() === expectedAnswer.value.toLowerCase().trim();
+      if (!isAnswerCorrect) {
+        hasFailed.value = true;
+      }
+
       showResult.value = true;
 
       setTimeout(() => {
@@ -347,56 +335,26 @@ const handlePaste = (event: ClipboardEvent) => {
 };
 
 const flipCard = () => {
-  // Only flip the card, don't change showResult here
-  // showResult is set when typing completes
   if (!showResult.value && !isFlipped.value) {
     hasPeeked.value = true;
+    hasFailed.value = true; // Flipping counts as a failure/penalty
   }
   isFlipped.value = !isFlipped.value;
 
-  // If flipping back to front (isFlipped is now false), focus the input
   if (!isFlipped.value) {
     setTimeout(() => {
       const targetInput = inputRefs.value[lastFocusedIndex.value] || inputRefs.value[0];
       if (targetInput) {
         targetInput.focus();
       }
-    }, 300); // Wait for flip animation to start/mid-way
-  }
-};
-
-const laterCard = async () => {
-  if (!currentCard.value?.id) return;
-
-  await store.updateReviewLater(currentCard.value.id);
-
-  // Flip back to front if needed
-  if (isFlipped.value) {
-    isFlipped.value = false;
-    setTimeout(() => {
-      // Clear state after flip completes
-      userInput.value = new Array(answerLength.value).fill('');
-      showResult.value = false;
-      checkedAnswer.value = '';
-      expectedAnswer.value = '';
-      initializeInput();
-    }, 700);
-  } else {
-    // Clear and initialize immediately if not flipped
-    userInput.value = new Array(answerLength.value).fill('');
-    showResult.value = false;
-    checkedAnswer.value = '';
-    expectedAnswer.value = '';
-    initializeInput();
+    }, 300);
   }
 };
 
 const retryCard = () => {
-  // Flip back to front
   if (isFlipped.value) {
     isFlipped.value = false;
     setTimeout(() => {
-      // Clear state after flip completes
       userInput.value = new Array(answerLength.value).fill('');
       showResult.value = false;
       checkedAnswer.value = '';
@@ -406,60 +364,50 @@ const retryCard = () => {
   }
 };
 
-const nextCard = async (rating: 'bad' | 'good' | 'great') => {
+const nextCard = async () => {
   if (!currentCard.value?.id || isTransitioning.value) return;
   
   isTransitioning.value = true;
   
-  // Clear any pending auto-advance timer
   if (nextCardTimeout.value) {
     clearTimeout(nextCardTimeout.value);
     nextCardTimeout.value = null;
   }
 
   try {
-    // Capture values before waiting
     const cardId = currentCard.value.id;
-    const scoreChange = rating === 'bad' ? -2 : rating === 'good' ? 1 : 2;
+    
+    // Scoring Logic:
+    // If correct first try (not failed): +1
+    // If failed (wrong or flipped): -1
+    const scoreChange = hasFailed.value ? -1 : 1;
 
-    // First flip back to front if currently flipped
     if (isFlipped.value) {
       isFlipped.value = false;
-      // Wait for flip animation to complete before updating data
       await new Promise(resolve => setTimeout(resolve, 700));
     }
     
-    // NOW update the data, which might cause the current card to disappear from dueWords
     await store.updateReview(cardId, scoreChange);
-    
-    // Reload words to get updated order
     await store.loadWords();
 
-    // Find where the next card should be (always go to index 0 since words are sorted by nextReviewAt)
     currentIndex.value = 0;
 
-    // Clear state after flip completes
     userInput.value = new Array(answerLength.value).fill('');
     showResult.value = false;
     checkedAnswer.value = '';
     expectedAnswer.value = '';
+    hasFailed.value = false;
     initializeInput();
   } finally {
     isTransitioning.value = false;
   }
 };
 
-const nextCardAfterIncorrect = () => {
-    // If the user presses Enter after getting it wrong, we treat it as 'bad'
-    nextCard('bad');
-}
-
 onMounted(() => {
-  // Add global keyboard listener for Enter key
   window.addEventListener('keydown', (e) => {
+    // If result is shown and it's incorrect, Enter key retries
     if (e.key === 'Enter' && showResult.value && isCorrect.value === false) {
-      // Enter key triggers Next button when answer is incorrect
-      nextCardAfterIncorrect();
+      retryCard();
     }
   });
   
@@ -468,7 +416,6 @@ onMounted(() => {
   }
 });
 
-// Watch for card changes to reinitialize input
 watch(currentIndex, () => {
   initializeInput();
 });
@@ -485,6 +432,28 @@ watch(currentIndex, () => {
           <Sun v-if="isDarkMode" class="h-5 w-5" />
           <Moon v-else class="h-5 w-5" />
         </Button>
+        
+        <!-- Info/Stats Popover -->
+        <Popover>
+          <PopoverTrigger as-child>
+            <Button variant="ghost" size="icon" class="rounded-full text-muted-foreground hover:text-foreground">
+              <Info class="h-5 w-5" />
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent class="w-64">
+            <div class="space-y-2">
+              <h4 class="font-medium leading-none">Score Intervals</h4>
+              <p class="text-xs text-muted-foreground">Time until next review for each score.</p>
+              <div class="grid grid-cols-2 gap-2 text-sm mt-2 max-h-[200px] overflow-y-auto">
+                <div v-for="item in scoreIntervals" :key="item.score" class="flex justify-between border-b pb-1">
+                  <span>Score {{ item.score }}</span>
+                  <span class="font-mono text-muted-foreground">{{ item.interval }}</span>
+                </div>
+              </div>
+            </div>
+          </PopoverContent>
+        </Popover>
+
         <Button variant="ghost" size="icon" @click="emit('toggle-debug')" class="rounded-full text-muted-foreground hover:text-foreground">
           <Bug class="h-5 w-5" />
         </Button>
@@ -502,7 +471,8 @@ watch(currentIndex, () => {
   <div class="flex-1 flex flex-col max-w-md mx-auto w-full gap-4">
     <div class="relative w-full perspective-1000">
       <Card
-        class="w-full min-h-[350px] grid grid-cols-1 transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
+        class="w-full grid grid-cols-1 transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
+        :style="{ minHeight: `${cardHeight}rem` }"
         :class="{ 'rotate-y-180': isFlipped }" @click="flipCard">
         <!-- Front of the card -->
         <div class="col-start-1 row-start-1 w-full h-full backface-hidden flex flex-col">
@@ -629,34 +599,13 @@ watch(currentIndex, () => {
 
     <!-- Navigation directly under card -->
     <div class="flex flex-col gap-2">
-      <div v-if="showResult && !isCorrect" class="w-full grid grid-cols-2 gap-3">
-        <Button variant="outline" class="w-full h-12 text-lg" @click="retryCard">
+      <div v-if="showResult && !isCorrect" class="w-full">
+        <Button class="w-full h-12 text-lg bg-primary hover:bg-primary/90 text-primary-foreground dark:bg-purple-600 dark:hover:bg-purple-700 dark:text-white" @click="retryCard">
           Retry
         </Button>
-        <Button class="w-full h-12 text-lg bg-primary hover:bg-primary/90 text-primary-foreground dark:bg-purple-600 dark:hover:bg-purple-700 dark:text-white" @click="nextCard('bad')">
-          Next
-        </Button>
       </div>
-      <div v-else class="grid grid-cols-4 gap-3">
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="laterCard">
-          <span class="font-semibold">Later</span>
-          <span class="text-xs text-muted-foreground">1 min</span>
-        </Button>
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('bad')">
-          <span class="font-semibold">Bad</span>
-          <span class="text-xs text-muted-foreground">{{ badInterval }}</span>
-        </Button>
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('good')">
-          <span class="font-semibold">Good</span>
-          <span class="text-xs text-muted-foreground">{{ goodInterval }}</span>
-        </Button>
-        <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="nextCard('great')">
-          <span class="font-semibold">Great</span>
-          <span class="text-xs text-muted-foreground">{{ greatInterval }}</span>
-        </Button>
-      </div>
+      <!-- No other buttons! -->
     </div>
-
 
   </div>
 </template>

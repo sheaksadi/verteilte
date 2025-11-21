@@ -19,6 +19,7 @@ const showImportDialog = ref(false);
 const showAuthDialog = ref(false);
 const showDebug = ref(false);
 const isDarkMode = ref(false);
+const cardHeight = ref(32);
 
 const toggleEditView = () => {
   showEditView.value = !showEditView.value;
@@ -142,13 +143,14 @@ onMounted(async () => {
       <!-- Flashcard content -->
       <FlashcardView v-else 
         :isDarkMode="isDarkMode"
+        :cardHeight="cardHeight"
         @toggle-dark-mode="toggleDarkMode"
         @toggle-edit-view="toggleEditView"
         @open-import-dialog="openImportDialog"
         @toggle-debug="showDebug = !showDebug"
       />
       
-      <DebugInfo v-if="showDebug" />
+      <DebugInfo v-if="showDebug" v-model:cardHeight="cardHeight" />
     </div>
 
     <!-- Import Dialog -->
