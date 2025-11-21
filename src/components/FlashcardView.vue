@@ -63,15 +63,24 @@ const calculateNextReview = (currentScore: number, scoreChange: number): number 
   const now = Date.now();
   const newScore = Math.max(0, currentScore + scoreChange);
 
-  // If score is 0 (new card or failed card), start with 10 minutes
+  // Standard calculation
+  let nextReview = now;
+  
   if (newScore === 0) {
-    return now + 10 * 60 * 1000;
+    nextReview = now + 10 * 60 * 1000;
+  } else {
+    const baseInterval = 60 * 60 * 1000; // 1 hour base
+    const interval = baseInterval * Math.pow(2.5, newScore - 1);
+    nextReview = now + interval;
   }
 
-  // For positive scores, use exponential growth
-  const baseInterval = 60 * 60 * 1000; // 1 hour base
-  const interval = baseInterval * Math.pow(2.5, newScore - 1);
-  return now + interval;
+  // If it was a "Bad" rating (scoreChange < 0), apply fallback logic
+  if (scoreChange < 0) {
+    const fallbackInterval = 10 * 60 * 1000 * (currentScore + 1);
+    nextReview = Math.max(nextReview, now + fallbackInterval);
+  }
+
+  return nextReview;
 };
 
 // Format time interval for display
@@ -113,18 +122,44 @@ const lastReviewedText = computed(() => {
   return formatInterval(diff) + ' ago';
 });
 
+// Dynamic text size based on length
+const getTextSizeClass = (text: string | undefined) => {
+  if (!text) return 'text-4xl';
+  const length = text.length;
+  if (length < 15) return 'text-4xl';
+  if (length < 25) return 'text-3xl';
+  if (length < 40) return 'text-2xl';
+  return 'text-xl';
+};
+
+const getArticleClass = (article: string | undefined) => {
+  if (!article) return '';
+  const lower = article.toLowerCase().trim();
+  if (lower === 'der') return 'bg-blue-100 text-blue-700 dark:bg-blue-900/50 dark:text-blue-300 border-blue-200 dark:border-blue-800';
+  if (lower === 'die') return 'bg-red-100 text-red-700 dark:bg-red-900/50 dark:text-red-300 border-red-200 dark:border-red-800';
+  if (lower === 'das') return 'bg-green-100 text-green-700 dark:bg-green-900/50 dark:text-green-300 border-green-200 dark:border-green-800';
+  return 'bg-secondary text-secondary-foreground';
+};
+
+const lastFocusedIndex = ref(0);
+
 const initializeInput = () => {
   userInput.value = new Array(answerLength.value).fill('');
   showResult.value = false;
   hasPeeked.value = false;
   checkedAnswer.value = '';
   expectedAnswer.value = '';
+  lastFocusedIndex.value = 0;
   setTimeout(() => {
     const firstInput = inputRefs.value[0];
     if (firstInput) {
       firstInput.focus();
     }
   }, 150);
+};
+
+const handleFocus = (index: number) => {
+  lastFocusedIndex.value = index;
 };
 
 const handleInput = (index: number, event: Event) => {
@@ -217,17 +252,16 @@ const handleInput = (index: number, event: Event) => {
         target.blur();
         flipCard();
 
-        // If correct AND card wasn't peeked at, auto-rate as great
-        if (isAnswerCorrect && !hasPeeked.value) {
+        // Auto-advance logic
+        if (isAnswerCorrect) {
+          // If peeked, it's bad. If not peeked, it's great.
+          const rating = hasPeeked.value ? 'bad' : 'great';
+          
           nextCardTimeout.value = setTimeout(() => {
-            nextCard('great');
-          }, 1000);
-        } else {
-          // If incorrect OR peeked, auto-rate as bad
-          nextCardTimeout.value = setTimeout(() => {
-            nextCard('bad');
+            nextCard(rating);
           }, 1000);
         }
+        // If incorrect, we DO NOT auto-advance. User must press Enter or click a button.
       }, 200);
     }
   }
@@ -248,6 +282,7 @@ const handleKeydown = (index: number, event: KeyboardEvent) => {
         const prevInput = inputRefs.value[index - 1];
         if (prevInput) {
           prevInput.focus();
+          prevInput.select();
         }
       }, 0);
     }
@@ -303,6 +338,16 @@ const flipCard = () => {
     hasPeeked.value = true;
   }
   isFlipped.value = !isFlipped.value;
+
+  // If flipping back to front (isFlipped is now false), focus the input
+  if (!isFlipped.value) {
+    setTimeout(() => {
+      const targetInput = inputRefs.value[lastFocusedIndex.value] || inputRefs.value[0];
+      if (targetInput) {
+        targetInput.focus();
+      }
+    }, 300); // Wait for flip animation to start/mid-way
+  }
 };
 
 const laterCard = async () => {
@@ -328,6 +373,21 @@ const laterCard = async () => {
     checkedAnswer.value = '';
     expectedAnswer.value = '';
     initializeInput();
+  }
+};
+
+const retryCard = () => {
+  // Flip back to front
+  if (isFlipped.value) {
+    isFlipped.value = false;
+    setTimeout(() => {
+      // Clear state after flip completes
+      userInput.value = new Array(answerLength.value).fill('');
+      showResult.value = false;
+      checkedAnswer.value = '';
+      expectedAnswer.value = '';
+      initializeInput();
+    }, 700);
   }
 };
 
@@ -418,12 +478,12 @@ watch(currentIndex, () => {
 
   <!-- Flashcard -->
   <div class="flex-1 flex flex-col max-w-md mx-auto w-full gap-4">
-    <div class="relative w-full h-[350px] perspective-1000">
+    <div class="relative w-full perspective-1000">
       <Card
-        class="w-full h-full absolute transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
+        class="w-full min-h-[350px] grid grid-cols-1 transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
         :class="{ 'rotate-y-180': isFlipped }" @click="flipCard">
         <!-- Front of the card -->
-        <div class="absolute w-full h-full backface-hidden flex flex-col">
+        <div class="col-start-1 row-start-1 w-full h-full backface-hidden flex flex-col">
           <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
             <!-- Score and Last Reviewed in corners -->
             <div class="absolute top-2 left-2 text-xs text-muted-foreground">
@@ -437,18 +497,23 @@ watch(currentIndex, () => {
               {{ lastReviewedText }}
             </div>
 
-            <div class="text-4xl font-bold text-primary dark:text-purple-400 mb-6 transition-all duration-300">
+            <div class="font-bold text-primary dark:text-purple-400 mb-6 transition-all duration-300 max-h-[200px] overflow-y-auto break-words w-full px-2"
+                 :class="getTextSizeClass(currentCard?.translation)">
               {{ currentCard?.translation }}
             </div>
-            <div v-if="currentCard?.article" class="text-sm text-muted-foreground mb-4">
-              Article: {{ currentCard?.article }}
+            <div v-if="currentCard?.article" class="mb-6">
+              <span class="inline-flex items-center justify-center px-3 py-1 rounded-full text-sm font-bold border shadow-sm"
+                    :class="getArticleClass(currentCard?.article)">
+                {{ currentCard?.article }}
+              </span>
             </div>
 
             <div class="space-y-3">
-              <div class="flex justify-center gap-1.5 flex-wrap" @click.stop>
+              <div class="flex justify-center gap-1.5 flex-wrap w-fit mx-auto" @click.stop>
                 <input v-for="(char, index) in userInput" :key="`${currentIndex}-${index}`"
                   :ref="el => { if (el) inputRefs[index] = el as HTMLInputElement }" v-model="userInput[index]"
                   @input="handleInput(index, $event)" @keydown="handleKeydown(index, $event)" @paste="handlePaste"
+                  @focus="handleFocus(index)"
                   type="text" maxlength="1" autocomplete="off" autocorrect="off" autocapitalize="off"
                   spellcheck="false" inputmode="text" enterkeyhint="next"
                   class="w-10 h-12 text-center text-xl font-semibold p-0 transition-all border rounded-md bg-background"
@@ -481,7 +546,7 @@ watch(currentIndex, () => {
         </div>
 
         <!-- Back of the card -->
-        <div class="absolute w-full h-full backface-hidden rotate-y-180 flex flex-col">
+        <div class="col-start-1 row-start-1 w-full h-full backface-hidden rotate-y-180 flex flex-col">
           <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
             <!-- Score and Last Reviewed in corners -->
             <div class="absolute top-2 left-2 text-xs text-muted-foreground">
@@ -495,11 +560,15 @@ watch(currentIndex, () => {
               {{ lastReviewedText }}
             </div>
 
-            <div class="text-4xl font-bold text-primary dark:text-purple-400 mb-4 transition-all duration-300">
-              {{ currentCard?.original }}
+            <div v-if="currentCard?.article" class="mb-2">
+              <span class="inline-flex items-center justify-center px-4 py-1.5 rounded-full text-lg font-bold border shadow-sm"
+                    :class="getArticleClass(currentCard?.article)">
+                {{ currentCard?.article }}
+              </span>
             </div>
-            <div v-if="currentCard?.article" class="text-lg text-muted-foreground mb-4">
-              {{ currentCard?.article }}
+            <div class="font-bold text-primary dark:text-purple-400 mb-4 transition-all duration-300 max-h-[200px] overflow-y-auto break-words w-full px-2"
+                 :class="getTextSizeClass(currentCard?.original)">
+              {{ currentCard?.original }}
             </div>
 
             <div v-if="userInputString.trim()" class="mt-4 p-4 rounded-lg" :class="{
@@ -538,7 +607,15 @@ watch(currentIndex, () => {
 
     <!-- Navigation directly under card -->
     <div class="flex flex-col gap-2">
-      <div class="grid grid-cols-4 gap-3">
+      <div v-if="showResult && !isCorrect" class="w-full grid grid-cols-2 gap-3">
+        <Button variant="outline" class="w-full h-12 text-lg" @click="retryCard">
+          Retry
+        </Button>
+        <Button class="w-full h-12 text-lg bg-primary hover:bg-primary/90 text-primary-foreground dark:bg-purple-600 dark:hover:bg-purple-700 dark:text-white" @click="nextCard('bad')">
+          Next
+        </Button>
+      </div>
+      <div v-else class="grid grid-cols-4 gap-3">
         <Button variant="outline" class="w-full flex flex-col gap-0.5 h-auto py-2" @click="laterCard">
           <span class="font-semibold">Later</span>
           <span class="text-xs text-muted-foreground">1 min</span>

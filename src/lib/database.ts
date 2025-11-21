@@ -17,6 +17,26 @@ let db: Database | null = null;
 let inMemoryWords: Word[] = [];
 
 const DEFAULT_WORDS: Word[] = [];
+const STORAGE_KEY = 'verteilte_words_db';
+
+function saveToStorage() {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(inMemoryWords));
+  }
+}
+
+function loadFromStorage() {
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        inMemoryWords = JSON.parse(stored);
+      } catch (e) {
+        console.error('Failed to parse stored words', e);
+      }
+    }
+  }
+}
 
 function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
@@ -28,6 +48,9 @@ function generateUUID(): string {
 
 export async function initDatabase(): Promise<Database | null> {
   if (!isTauri()) {
+    if (inMemoryWords.length === 0) {
+      loadFromStorage();
+    }
     return null;
   }
 
@@ -164,13 +187,27 @@ export async function getAllWords(): Promise<Word[]> {
 
 export async function getWordsForSync(lastSync: number): Promise<Word[]> {
   const database = await initDatabase();
-  if (!database) return [];
+  if (!database) {
+    return inMemoryWords.filter(w => w.updatedAt > lastSync);
+  }
   return await database.select<Word[]>('SELECT * FROM words WHERE updatedAt > $1', [lastSync]);
 }
 
 export async function upsertWords(words: Word[]): Promise<void> {
   const database = await initDatabase();
-  if (!database) return;
+
+  if (!database) {
+    for (const w of words) {
+      const index = inMemoryWords.findIndex(existing => existing.id === w.id);
+      if (index >= 0) {
+        inMemoryWords[index] = w;
+      } else {
+        inMemoryWords.push(w);
+      }
+    }
+    saveToStorage();
+    return;
+  }
 
   for (const w of words) {
     await database.execute(
@@ -200,6 +237,7 @@ export async function addWord(word: Omit<Word, 'id' | 'updatedAt' | 'deletedAt'>
       deletedAt: null
     };
     inMemoryWords.unshift(newWord);
+    saveToStorage();
     return newId;
   }
 
@@ -230,6 +268,7 @@ export async function deleteWord(id: string): Promise<void> {
     if (index >= 0) {
       inMemoryWords[index].deletedAt = now;
       inMemoryWords[index].updatedAt = now;
+      saveToStorage();
     }
     return;
   }
@@ -258,6 +297,7 @@ export async function updateWordReview(id: string, scoreChange: number): Promise
       word.lastReviewedAt = now;
       word.nextReviewAt = calculateNextReview(word.score);
       word.updatedAt = now;
+      saveToStorage();
     }
     return;
   }
@@ -265,8 +305,17 @@ export async function updateWordReview(id: string, scoreChange: number): Promise
   const result = await database.select<Array<{ score: number }>>('SELECT score FROM words WHERE id = $1', [id]);
   if (result.length === 0) return;
 
-  const newScore = Math.max(0, result[0].score + scoreChange);
-  const nextReviewAt = calculateNextReview(newScore);
+  const currentScore = result[0].score;
+  const newScore = Math.max(0, currentScore + scoreChange);
+
+  let nextReviewAt = calculateNextReview(newScore);
+
+  // If it was a "Bad" rating (scoreChange < 0), ensure we don't drop too drastically
+  // Fallback: 10 minutes * (currentScore + 1)
+  if (scoreChange < 0) {
+    const fallbackInterval = 10 * 60 * 1000 * (currentScore + 1);
+    nextReviewAt = Math.max(nextReviewAt, now + fallbackInterval);
+  }
 
   await database.execute(
     'UPDATE words SET score = $1, lastReviewedAt = $2, nextReviewAt = $3, updatedAt = $2 WHERE id = $4',
@@ -363,6 +412,7 @@ export async function resetAllWords(): Promise<void> {
       nextReviewAt: now,
       updatedAt: now
     }));
+    saveToStorage();
     return;
   }
 
