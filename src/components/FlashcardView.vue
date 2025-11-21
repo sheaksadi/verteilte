@@ -203,6 +203,10 @@ const handleInput = (index: number, event: Event) => {
             
             // Visual feedback
             justCorrectedIndex.value = index - 1;
+            
+            // Haptic feedback
+            impactFeedback('light').catch(e => console.debug('Haptics not available:', e));
+
             setTimeout(() => {
               justCorrectedIndex.value = null;
             }, 500);
