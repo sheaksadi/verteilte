@@ -7,9 +7,6 @@ services:
     environment:
       - PORT=6900
       - DATABASE_URL=postgres://user:password@db:5432/verteilte
-    volumes:
-      - ./server:/app
-      - /app/node_modules
     depends_on:
       - db
     networks:
