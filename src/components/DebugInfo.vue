@@ -38,28 +38,43 @@ const notificationType = ref<'success' | 'warning' | 'error'>('success');
 const vibrateDuration = ref(200);
 
 // Network Debug State
-const connectionStatus = ref<string>('Unknown');
-const connectionError = ref<string>('');
+const serverStatus = ref<string>('Unknown');
+const serverError = ref<string>('');
+const internetStatus = ref<string>('Unknown');
+const internetError = ref<string>('');
 const isCheckingConnection = ref(false);
 
 const checkConnection = async () => {
   isCheckingConnection.value = true;
-  connectionStatus.value = 'Checking...';
-  connectionError.value = '';
+  serverStatus.value = 'Checking...';
+  serverError.value = '';
+  internetStatus.value = 'Checking...';
+  internetError.value = '';
   
   try {
-    const result = await store.checkConnection();
-    
-    if (result.success) {
-      connectionStatus.value = 'Connected';
-      connectionError.value = result.message || '';
+    // Check Server
+    const serverResult = await store.checkConnection();
+    if (serverResult.success) {
+      serverStatus.value = 'Connected';
+      serverError.value = serverResult.message || '';
     } else {
-      connectionStatus.value = 'Failed';
-      connectionError.value = result.message || 'Unknown error';
+      serverStatus.value = 'Failed';
+      serverError.value = serverResult.message || 'Unknown error';
     }
+
+    // Check Internet
+    const internetResult = await store.pingGoogle();
+    if (internetResult.success) {
+      internetStatus.value = 'Connected';
+      internetError.value = internetResult.message || '';
+    } else {
+      internetStatus.value = 'Failed';
+      internetError.value = internetResult.message || 'Unknown error';
+    }
+
   } catch (e: any) {
-    connectionStatus.value = 'Failed';
-    connectionError.value = e.message || String(e);
+    serverStatus.value = 'Error';
+    serverError.value = e.message || String(e);
   } finally {
     isCheckingConnection.value = false;
   }
@@ -184,11 +199,19 @@ const resetAllCardsDebug = async () => {
         <h4 class="text-xs font-semibold mb-2">Network Debugger</h4>
         <div class="space-y-2">
           <div class="text-xs">
-            <div>Status: <span :class="connectionStatus.startsWith('Connected') ? 'text-green-600' : connectionStatus === 'Checking...' ? 'text-yellow-600' : 'text-red-600'" class="font-mono">{{ connectionStatus }}</span></div>
-            <div v-if="connectionError" class="text-red-600 break-words mt-1">{{ connectionError }}</div>
+            <div class="font-semibold mb-1">Server ({{ store.apiUrl }})</div>
+            <div>Status: <span :class="serverStatus.startsWith('Connected') ? 'text-green-600' : serverStatus === 'Checking...' ? 'text-yellow-600' : 'text-red-600'" class="font-mono">{{ serverStatus }}</span></div>
+            <div v-if="serverError" class="text-red-600 break-words mt-1">{{ serverError }}</div>
           </div>
-          <Button @click="checkConnection" :disabled="isCheckingConnection" size="sm" variant="secondary" class="w-full text-xs">
-            {{ isCheckingConnection ? 'Checking...' : 'Test Internet Connection' }}
+
+          <div class="text-xs border-t pt-2 mt-2">
+            <div class="font-semibold mb-1">Internet (Google)</div>
+            <div>Status: <span :class="internetStatus.startsWith('Connected') ? 'text-green-600' : internetStatus === 'Checking...' ? 'text-yellow-600' : 'text-red-600'" class="font-mono">{{ internetStatus }}</span></div>
+            <div v-if="internetError" class="text-red-600 break-words mt-1">{{ internetError }}</div>
+          </div>
+
+          <Button @click="checkConnection" :disabled="isCheckingConnection" size="sm" variant="secondary" class="w-full text-xs mt-2">
+            {{ isCheckingConnection ? 'Checking...' : 'Test Connections' }}
           </Button>
         </div>
       </div>

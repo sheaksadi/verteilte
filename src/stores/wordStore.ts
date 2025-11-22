@@ -332,6 +332,17 @@ export const useWordStore = defineStore('words', () => {
         }
     };
 
+    const pingGoogle = async () => {
+        try {
+            // mode: 'no-cors' is important because Google doesn't allow CORS
+            // We won't get a readable response, but if it doesn't throw, we have internet
+            await fetch('https://www.google.com', { mode: 'no-cors' });
+            return { success: true, message: 'Internet accessible' };
+        } catch (e) {
+            return { success: false, message: `Internet check failed: ${e instanceof Error ? e.message : String(e)}` };
+        }
+    };
+
     return {
         words,
         searchQuery,
@@ -362,6 +373,7 @@ export const useWordStore = defineStore('words', () => {
         saveSettings,
         loadSettings,
         checkConnection,
-        pingServer
+        pingServer,
+        pingGoogle
     };
 });
