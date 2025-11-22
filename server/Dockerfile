@@ -12,4 +12,4 @@ COPY . .
 
 EXPOSE 6900
 
-CMD ["pnpm", "run", "dev"]
+CMD ["/bin/sh", "-c", "pnpm run build && pnpm start"]
