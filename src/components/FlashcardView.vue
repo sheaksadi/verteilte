@@ -2,7 +2,6 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Moon, Sun, Edit3, Bug } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { impactFeedback, vibrate } from '@tauri-apps/plugin-haptics';
@@ -12,7 +11,7 @@ const props = defineProps<{
   cardHeight: number;
 }>();
 
-const emit = defineEmits(['toggle-dark-mode', 'toggle-edit-view', 'toggle-debug']);
+
 
 const store = useWordStore();
 const { dueWords } = storeToRefs(store);
@@ -375,32 +374,10 @@ watch(currentIndex, () => {
 </script>
 
 <template>
-  <!-- Header -->
-  <div class="text-center mb-6">
-    <div class="flex items-center justify-between max-w-md mx-auto mb-4">
-      <h1 class="text-2xl font-bold text-primary">Flashcards</h1>
-      
-      <div class="flex gap-2">
-        <Button variant="ghost" size="icon" @click="emit('toggle-dark-mode')" class="rounded-full">
-          <Sun v-if="isDarkMode" class="h-5 w-5" />
-          <Moon v-else class="h-5 w-5" />
-        </Button>
-        
 
-
-        <Button variant="ghost" size="icon" @click="emit('toggle-debug')" class="rounded-full text-muted-foreground hover:text-foreground">
-          <Bug class="h-5 w-5" />
-        </Button>
-
-        <Button @click="emit('toggle-edit-view')" variant="outline" size="sm">
-          <Edit3 class="h-4 w-4 mr-2" /> Manage Words
-        </Button>
-      </div>
-    </div>
-  </div>
 
   <!-- Flashcard -->
-  <div class="flex-1 flex flex-col max-w-md mx-auto w-full gap-4">
+  <div class="flex-1 flex flex-col max-w-md mx-auto w-full gap-2">
     <div class="relative w-full perspective-1000">
       <Card
         class="w-full grid grid-cols-1 transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
@@ -432,7 +409,7 @@ watch(currentIndex, () => {
               </span>
             </div>
 
-            <div class="space-y-3">
+            <div class="space-y-2">
               <div class="flex justify-center gap-1.5 flex-wrap w-fit mx-auto" @click.stop>
                 <input v-for="(char, index) in userInput" :key="`${currentIndex}-${index}`"
                   :ref="el => { if (el) inputRefs[index] = el as HTMLInputElement }" v-model="userInput[index]"
@@ -531,9 +508,12 @@ watch(currentIndex, () => {
 
     <!-- Navigation directly under card -->
     <div class="flex flex-col gap-2">
-      <div v-if="showResult && !isCorrect" class="w-full">
-        <Button class="w-full h-12 text-lg bg-primary hover:bg-primary/90 text-primary-foreground dark:bg-purple-600 dark:hover:bg-purple-700 dark:text-white" @click="retryCard">
+      <div v-if="showResult && !isCorrect" class="w-full flex gap-2">
+        <Button class="flex-1 h-12 text-lg bg-primary hover:bg-primary/90 text-primary-foreground dark:bg-purple-600 dark:hover:bg-purple-700 dark:text-white" @click="retryCard">
           Retry
+        </Button>
+        <Button class="flex-1 h-12 text-lg" variant="outline" @click="nextCard">
+          Next
         </Button>
       </div>
       <!-- No other buttons! -->

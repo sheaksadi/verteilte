@@ -2,7 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Plus, Play, Check, User, RefreshCw, LogOut } from 'lucide-vue-next';
+import { Plus, Play, Check, User, RefreshCw, LogOut, Moon, Sun, Edit3, Bug } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import FlashcardView from '@/components/FlashcardView.vue';
@@ -22,7 +22,7 @@ const showAuthDialog = ref(false);
 const showDebug = ref(false);
 const showAlgorithmSettings = ref(false);
 const isDarkMode = ref(false);
-const cardHeight = ref(32);
+const cardHeight = ref(25);
 
 const toggleEditView = () => {
   showEditView.value = !showEditView.value;
@@ -78,18 +78,37 @@ onMounted(async () => {
 
 <template>
   <main class="min-h-screen bg-background p-4 flex flex-col transition-colors duration-300 relative">
-    <!-- User/Sync Controls (Top Left) -->
-    <div class="absolute top-4 left-4 z-10 flex gap-2">
-      <Button variant="outline" size="icon" @click="handleSyncClick" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" :title="isLoggedIn ? 'Sync now' : 'Login to sync'">
-        <RefreshCw v-if="isLoggedIn" class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />
-        <User v-else class="h-4 w-4" />
-      </Button>
-      <Button variant="outline" size="icon" @click="showAlgorithmSettings = true" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" title="Algorithm Settings">
-        <Settings class="h-4 w-4" />
-      </Button>
-      <Button v-if="isLoggedIn" variant="outline" size="icon" @click="handleLogout" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" title="Logout">
-        <LogOut class="h-4 w-4" />
-      </Button>
+    <!-- Unified Top Bar -->
+    <div class="w-full max-w-md mx-auto flex items-center justify-between mb-4">
+      <!-- Left Controls (Sync, Settings, Logout) -->
+      <div class="flex gap-2">
+        <Button variant="outline" size="icon" @click="handleSyncClick" class="rounded-full shadow-sm" :title="isLoggedIn ? 'Sync now' : 'Login to sync'">
+          <RefreshCw v-if="isLoggedIn" class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />
+          <User v-else class="h-4 w-4" />
+        </Button>
+        <Button variant="outline" size="icon" @click="showAlgorithmSettings = true" class="rounded-full shadow-sm" title="Algorithm Settings">
+          <Settings class="h-4 w-4" />
+        </Button>
+        <Button v-if="isLoggedIn" variant="outline" size="icon" @click="handleLogout" class="rounded-full shadow-sm" title="Logout">
+          <LogOut class="h-4 w-4" />
+        </Button>
+      </div>
+
+      <!-- Right Controls (Dark Mode, Debug, Manage Words) -->
+      <div class="flex gap-2 items-center">
+        <Button variant="ghost" size="icon" @click="toggleDarkMode" class="rounded-full">
+          <Sun v-if="isDarkMode" class="h-5 w-5" />
+          <Moon v-else class="h-5 w-5" />
+        </Button>
+        
+        <Button variant="ghost" size="icon" @click="showDebug = !showDebug" class="rounded-full text-muted-foreground hover:text-foreground">
+          <Bug class="h-5 w-5" />
+        </Button>
+
+        <Button @click="toggleEditView" variant="outline" size="sm">
+          <Edit3 class="h-4 w-4 mr-2" /> Manage Words
+        </Button>
+      </div>
     </div>
 
     <!-- Loading state -->
@@ -150,9 +169,6 @@ onMounted(async () => {
       <FlashcardView v-else 
         :isDarkMode="isDarkMode"
         :cardHeight="cardHeight"
-        @toggle-dark-mode="toggleDarkMode"
-        @toggle-edit-view="toggleEditView"
-        @toggle-debug="showDebug = !showDebug"
       />
       
       <DebugInfo v-if="showDebug" v-model:cardHeight="cardHeight" />

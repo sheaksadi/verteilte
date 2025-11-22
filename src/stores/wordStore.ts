@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
+import { useNow } from '@vueuse/core';
 import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
 
@@ -44,12 +45,13 @@ export const useWordStore = defineStore('words', () => {
         );
     });
 
+    const now = useNow({ interval: 1000 });
+
     const dueWords = computed(() => {
         if (isKeepGoingMode.value) {
             return keepGoingWords.value;
         }
-        const now = Date.now();
-        return words.value.filter(word => word.nextReviewAt <= now);
+        return words.value.filter(word => word.nextReviewAt <= now.value.getTime());
     });
 
     const isLoggedIn = computed(() => !!token.value);
