@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, type Word } from '@/lib/database';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -19,6 +19,8 @@ export const useWordStore = defineStore('words', () => {
         dbWordsCount: 0,
         dictionaryLogs: [] as string[],
     });
+
+    const algorithmSettings = ref<AlgorithmSettings | null>(null);
 
     const isKeepGoingMode = ref(false);
     const keepGoingWords = ref<Word[]>([]);
@@ -64,6 +66,8 @@ export const useWordStore = defineStore('words', () => {
         try {
             words.value = await getAllWords();
             debugInfo.value.dbWordsCount = words.value.length;
+            // Load settings as well
+            algorithmSettings.value = await getAlgorithmSettings();
         } catch (error) {
             console.error('Failed to load words:', error);
             debugInfo.value.loadError = error instanceof Error ? error.message : String(error);
@@ -280,12 +284,22 @@ export const useWordStore = defineStore('words', () => {
         }
     };
 
+    const saveSettings = async (settings: AlgorithmSettings) => {
+        await dbSaveAlgorithmSettings(settings);
+        algorithmSettings.value = settings;
+    };
+
+    const loadSettings = async () => {
+        algorithmSettings.value = await getAlgorithmSettings();
+    };
+
     return {
         words,
         searchQuery,
         isLoading,
         dictionaryInfo,
         debugInfo,
+        algorithmSettings,
         filteredWords,
         dueWords,
         isKeepGoingMode,
@@ -305,6 +319,8 @@ export const useWordStore = defineStore('words', () => {
         register,
         logout,
         sync,
-        setApiUrl
+        setApiUrl,
+        saveSettings,
+        loadSettings
     };
 });

@@ -4,7 +4,17 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { useWordStore } from '@/stores/wordStore';
+import { SCORE_INTERVALS } from '@/lib/database';
 import { storeToRefs } from 'pinia';
+
+function formatDuration(ms: number): string {
+  const minutes = Math.floor(ms / 60000);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
 import { 
   impactFeedback, 
   notificationFeedback, 
@@ -139,6 +149,17 @@ const resetAllCardsDebug = async () => {
         <Button @click="resetAllCardsDebug" variant="destructive" size="sm" class="w-full text-xs">
           Reset All Cards (Score=0, Due Now)
         </Button>
+      </div>
+
+      <!-- Score Intervals -->
+      <div class="mt-3 border-t pt-2">
+        <h4 class="text-xs font-semibold mb-2">Score Intervals</h4>
+        <div class="grid grid-cols-2 gap-1 text-xs">
+          <div v-for="(interval, score) in SCORE_INTERVALS" :key="score" class="flex justify-between px-2 py-1 bg-secondary/50 rounded">
+            <span class="font-mono">Score {{ score }}</span>
+            <span class="text-muted-foreground">{{ formatDuration(interval) }}</span>
+          </div>
+        </div>
       </div>
 
       <div v-if="debugInfo.dictionaryLogs.length > 0" class="mt-3 border-t pt-2">

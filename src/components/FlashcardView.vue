@@ -2,22 +2,17 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Moon, Sun, Edit3, Bug, Info } from 'lucide-vue-next';
+import { Moon, Sun, Edit3, Bug } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { impactFeedback, vibrate } from '@tauri-apps/plugin-haptics';
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from '@/components/ui/popover';
 
 const props = defineProps<{
   isDarkMode: boolean;
   cardHeight: number;
 }>();
 
-const emit = defineEmits(['toggle-dark-mode', 'toggle-edit-view', 'open-import-dialog', 'toggle-debug']);
+const emit = defineEmits(['toggle-dark-mode', 'toggle-edit-view', 'toggle-debug']);
 
 const store = useWordStore();
 const { dueWords } = storeToRefs(store);
@@ -57,30 +52,6 @@ const isCorrect = computed(() => {
   return correct === expected;
 });
 
-// Calculate next review time based on score change
-const calculateNextReview = (currentScore: number, scoreChange: number): number => {
-  // In keep going mode, score doesn't change
-  if (store.isKeepGoingMode) {
-    scoreChange = 0;
-  }
-
-  const now = Date.now();
-  const newScore = Math.max(0, currentScore + scoreChange);
-
-  // Standard calculation
-  let nextReview = now;
-  
-  if (newScore === 0) {
-    nextReview = now + 10 * 60 * 1000; // 10 minutes
-  } else {
-    const baseInterval = 60 * 60 * 1000; // 1 hour base
-    const interval = baseInterval * Math.pow(2.5, newScore - 1);
-    nextReview = now + interval;
-  }
-  
-  return nextReview;
-};
-
 // Format time interval for display
 const formatInterval = (ms: number): string => {
   const seconds = Math.floor(ms / 1000);
@@ -93,24 +64,6 @@ const formatInterval = (ms: number): string => {
   if (minutes > 0) return `${minutes}m`;
   return `${seconds}s`;
 };
-
-// Generate intervals for scores 0-10
-const scoreIntervals = computed(() => {
-  const intervals = [];
-  for (let i = 0; i <= 10; i++) {
-    // Calculate what the interval would be if we had this score
-    // We use the formula directly:
-    let intervalMs = 0;
-    if (i === 0) {
-      intervalMs = 10 * 60 * 1000;
-    } else {
-      const baseInterval = 60 * 60 * 1000;
-      intervalMs = baseInterval * Math.pow(2.5, i - 1);
-    }
-    intervals.push({ score: i, interval: formatInterval(intervalMs) });
-  }
-  return intervals;
-});
 
 // Format last reviewed time
 const lastReviewedText = computed(() => {
@@ -433,33 +386,12 @@ watch(currentIndex, () => {
           <Moon v-else class="h-5 w-5" />
         </Button>
         
-        <!-- Info/Stats Popover -->
-        <Popover>
-          <PopoverTrigger as-child>
-            <Button variant="ghost" size="icon" class="rounded-full text-muted-foreground hover:text-foreground">
-              <Info class="h-5 w-5" />
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent class="w-64">
-            <div class="space-y-2">
-              <h4 class="font-medium leading-none">Score Intervals</h4>
-              <p class="text-xs text-muted-foreground">Time until next review for each score.</p>
-              <div class="grid grid-cols-2 gap-2 text-sm mt-2 max-h-[200px] overflow-y-auto">
-                <div v-for="item in scoreIntervals" :key="item.score" class="flex justify-between border-b pb-1">
-                  <span>Score {{ item.score }}</span>
-                  <span class="font-mono text-muted-foreground">{{ item.interval }}</span>
-                </div>
-              </div>
-            </div>
-          </PopoverContent>
-        </Popover>
+
 
         <Button variant="ghost" size="icon" @click="emit('toggle-debug')" class="rounded-full text-muted-foreground hover:text-foreground">
           <Bug class="h-5 w-5" />
         </Button>
-        <Button variant="outline" size="sm" @click="emit('open-import-dialog')" class="hidden sm:flex">
-          Import
-        </Button>
+
         <Button @click="emit('toggle-edit-view')" variant="outline" size="sm">
           <Edit3 class="h-4 w-4 mr-2" /> Manage Words
         </Button>

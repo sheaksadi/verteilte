@@ -18,21 +18,58 @@ let inMemoryWords: Word[] = [];
 
 const DEFAULT_WORDS: Word[] = [];
 const STORAGE_KEY = 'verteilte_words_db';
+const SETTINGS_KEY = 'verteilte_settings';
 
-function saveToStorage() {
+export interface AlgorithmSettings {
+  intervals: Record<number, number>; // score -> ms
+  maxScore: number;
+  maxScoreBehavior: 'cap' | 'archive'; // 'cap' = stay at max, 'archive' = stop reviewing
+}
+
+export const DEFAULT_ALGORITHM_SETTINGS: AlgorithmSettings = {
+  intervals: {
+    0: 10 * 60 * 1000,             // 10 mins
+    1: 4 * 60 * 60 * 1000,         // 4 hours
+    2: 12 * 60 * 60 * 1000,        // 12 hours
+    3: 24 * 60 * 60 * 1000,        // 1 day
+    4: 2 * 24 * 60 * 60 * 1000,    // 2 days
+    5: 3 * 24 * 60 * 60 * 1000,    // 3 days
+    6: 5 * 24 * 60 * 60 * 1000,    // 5 days
+    7: 10 * 24 * 60 * 60 * 1000,   // 10 days
+    8: 25 * 24 * 60 * 60 * 1000,   // 25 days
+    9: 50 * 24 * 60 * 60 * 1000,   // 50 days
+    10: 90 * 24 * 60 * 60 * 1000   // 90 days
+  },
+  maxScore: 10,
+  maxScoreBehavior: 'cap'
+};
+
+// Backwards compatibility export, but now it should ideally read from settings if possible.
+// However, for direct imports where async isn't possible, we might need to rely on the store or a getter.
+// For now, I'll export the default as SCORE_INTERVALS to avoid breaking other files immediately,
+// but I will deprecate its direct usage in favor of `getAlgorithmSettings`.
+export const SCORE_INTERVALS = DEFAULT_ALGORITHM_SETTINGS.intervals;
+
+let inMemorySettings: AlgorithmSettings = { ...DEFAULT_ALGORITHM_SETTINGS };
+
+function saveSettingsToStorage() {
   if (typeof localStorage !== 'undefined') {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(inMemoryWords));
+    localStorage.setItem(SETTINGS_KEY, JSON.stringify(inMemorySettings));
   }
 }
 
-function loadFromStorage() {
+function loadSettingsFromStorage() {
   if (typeof localStorage !== 'undefined') {
-    const stored = localStorage.getItem(STORAGE_KEY);
+    const stored = localStorage.getItem(SETTINGS_KEY);
     if (stored) {
       try {
-        inMemoryWords = JSON.parse(stored);
+        const parsed = JSON.parse(stored);
+        // Merge with defaults to ensure all fields exist
+        inMemorySettings = { ...DEFAULT_ALGORITHM_SETTINGS, ...parsed };
+        // Ensure intervals is a proper object (if partial)
+        inMemorySettings.intervals = { ...DEFAULT_ALGORITHM_SETTINGS.intervals, ...parsed.intervals };
       } catch (e) {
-        console.error('Failed to parse stored words', e);
+        console.error('Failed to parse stored settings', e);
       }
     }
   }
@@ -51,6 +88,7 @@ export async function initDatabase(): Promise<Database | null> {
     if (inMemoryWords.length === 0) {
       loadFromStorage();
     }
+    loadSettingsFromStorage();
     return null;
   }
 
@@ -58,6 +96,9 @@ export async function initDatabase(): Promise<Database | null> {
     try {
       console.log('Attempting to load SQLite database...');
       db = await Database.load('sqlite:words.db');
+
+      // Load settings from local storage even in Tauri mode for now
+      loadSettingsFromStorage();
 
       // Migration: Check if table has new schema
       try {
@@ -169,6 +210,19 @@ export async function initDatabase(): Promise<Database | null> {
   return db;
 }
 
+export async function getAlgorithmSettings(): Promise<AlgorithmSettings> {
+  // Ensure loaded
+  if (Object.keys(inMemorySettings.intervals).length === 0) {
+    loadSettingsFromStorage();
+  }
+  return { ...inMemorySettings };
+}
+
+export async function saveAlgorithmSettings(settings: AlgorithmSettings): Promise<void> {
+  inMemorySettings = { ...settings };
+  saveSettingsToStorage();
+}
+
 // Alias for consistency
 export async function getDatabase(): Promise<Database | null> {
   return initDatabase();
@@ -276,24 +330,63 @@ export async function deleteWord(id: string): Promise<void> {
   await database.execute('UPDATE words SET deletedAt = $1, updatedAt = $1 WHERE id = $2', [now, id]);
 }
 
+function saveToStorage() {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(inMemoryWords));
+  }
+}
+
+function loadFromStorage() {
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored) {
+      try {
+        inMemoryWords = JSON.parse(stored);
+      } catch (e) {
+        console.error('Failed to parse stored words', e);
+      }
+    }
+  }
+}
+
 function calculateNextReview(score: number): number {
   const now = Date.now();
-  if (score === 0) {
-    return now + 10 * 60 * 1000;
-  }
-  const baseInterval = 60 * 60 * 1000;
-  const interval = baseInterval * Math.pow(2.5, score - 1);
+
+  // If archived, return a far future date (or handle differently)
+  // But for now, just use max score behavior
+
+  // Cap score at maxScore, default to 0 if negative
+  const maxScore = inMemorySettings.maxScore;
+  const effectiveScore = Math.max(0, Math.min(maxScore, score));
+
+  // Get interval from settings, fallback to max score interval
+  const interval = inMemorySettings.intervals[effectiveScore] || inMemorySettings.intervals[maxScore] || (24 * 60 * 60 * 1000);
+
   return now + interval;
 }
 
 export async function updateWordReview(id: string, scoreChange: number): Promise<void> {
   const database = await initDatabase();
   const now = Date.now();
+  const maxScore = inMemorySettings.maxScore;
 
   if (!database) {
     const word = inMemoryWords.find(w => w.id === id);
     if (word) {
-      word.score = Math.max(0, word.score + scoreChange);
+      let newScore = word.score + scoreChange;
+
+      // Apply max score behavior
+      if (newScore > maxScore) {
+        if (inMemorySettings.maxScoreBehavior === 'archive') {
+          // For now, just cap it, but maybe we should mark it?
+          // We don't have an 'archived' state yet.
+          newScore = maxScore;
+        } else {
+          newScore = maxScore;
+        }
+      }
+
+      word.score = Math.max(0, newScore);
       word.lastReviewedAt = now;
       word.nextReviewAt = calculateNextReview(word.score);
       word.updatedAt = now;
@@ -306,16 +399,15 @@ export async function updateWordReview(id: string, scoreChange: number): Promise
   if (result.length === 0) return;
 
   const currentScore = result[0].score;
-  const newScore = Math.max(0, currentScore + scoreChange);
+  let newScore = currentScore + scoreChange;
 
-  let nextReviewAt = calculateNextReview(newScore);
-
-  // If it was a "Bad" rating (scoreChange < 0), ensure we don't drop too drastically
-  // Fallback: 10 minutes * (currentScore + 1)
-  if (scoreChange < 0) {
-    const fallbackInterval = 10 * 60 * 1000 * (currentScore + 1);
-    nextReviewAt = Math.max(nextReviewAt, now + fallbackInterval);
+  if (newScore > maxScore) {
+    newScore = maxScore;
   }
+
+  newScore = Math.max(0, newScore);
+
+  const nextReviewAt = calculateNextReview(newScore);
 
   await database.execute(
     'UPDATE words SET score = $1, lastReviewedAt = $2, nextReviewAt = $3, updatedAt = $2 WHERE id = $4',

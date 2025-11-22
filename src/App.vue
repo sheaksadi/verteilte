@@ -8,8 +8,10 @@ import { storeToRefs } from 'pinia';
 import FlashcardView from '@/components/FlashcardView.vue';
 import WordManager from '@/components/WordManager.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
+import AlgorithmSettings from '@/components/AlgorithmSettings.vue';
 import Auth from '@/components/Auth.vue';
 import DebugInfo from '@/components/DebugInfo.vue';
+import { Settings } from 'lucide-vue-next';
 
 const store = useWordStore();
 const { words, dueWords, isLoading, debugInfo, isLoggedIn, user, isSyncing } = storeToRefs(store);
@@ -18,6 +20,7 @@ const showEditView = ref(false);
 const showImportDialog = ref(false);
 const showAuthDialog = ref(false);
 const showDebug = ref(false);
+const showAlgorithmSettings = ref(false);
 const isDarkMode = ref(false);
 const cardHeight = ref(32);
 
@@ -80,6 +83,9 @@ onMounted(async () => {
       <Button variant="outline" size="icon" @click="handleSyncClick" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" :title="isLoggedIn ? 'Sync now' : 'Login to sync'">
         <RefreshCw v-if="isLoggedIn" class="h-4 w-4" :class="{ 'animate-spin': isSyncing }" />
         <User v-else class="h-4 w-4" />
+      </Button>
+      <Button variant="outline" size="icon" @click="showAlgorithmSettings = true" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" title="Algorithm Settings">
+        <Settings class="h-4 w-4" />
       </Button>
       <Button v-if="isLoggedIn" variant="outline" size="icon" @click="handleLogout" class="rounded-full bg-background/80 backdrop-blur-sm shadow-sm" title="Logout">
         <LogOut class="h-4 w-4" />
@@ -146,7 +152,6 @@ onMounted(async () => {
         :cardHeight="cardHeight"
         @toggle-dark-mode="toggleDarkMode"
         @toggle-edit-view="toggleEditView"
-        @open-import-dialog="openImportDialog"
         @toggle-debug="showDebug = !showDebug"
       />
       
@@ -155,6 +160,9 @@ onMounted(async () => {
 
     <!-- Import Dialog -->
     <ImportDialog v-if="showImportDialog" @close="showImportDialog = false" />
+    
+    <!-- Algorithm Settings Dialog -->
+    <AlgorithmSettings v-if="showAlgorithmSettings" @close="showAlgorithmSettings = false" />
     
     <!-- Auth Dialog -->
     <Auth v-if="showAuthDialog" @close="showAuthDialog = false" />
