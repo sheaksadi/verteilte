@@ -111,3 +111,7 @@ To run on an Android emulator or device:
 ## 🤝 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
+
+## 🤖 AI Disclaimer
+
+This project was developed with the heavy assistance of agentic coding models. While we strive for high-quality code, please be aware that some implementation details may reflect patterns common to AI-generated code.
