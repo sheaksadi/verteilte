@@ -23,14 +23,18 @@ app.get('/health', (req, res) => {
 
 import os from 'os';
 
-app.listen(port, () => {
-    const networkInterfaces = os.networkInterfaces();
-    const ip = Object.values(networkInterfaces)
-        .flat()
-        .find((iface) => iface?.family === 'IPv4' && !iface.internal)?.address;
+import { migrate } from './db';
 
-    console.log(`Server running on port ${port}`);
-    if (ip) {
-        console.log(`Network access: http://${ip}:${port}`);
-    }
+migrate().then(() => {
+    app.listen(port, () => {
+        const networkInterfaces = os.networkInterfaces();
+        const ip = Object.values(networkInterfaces)
+            .flat()
+            .find((iface) => iface?.family === 'IPv4' && !iface.internal)?.address;
+
+        console.log(`Server running on port ${port}`);
+        if (ip) {
+            console.log(`Network access: http://${ip}:${port}`);
+        }
+    });
 });
