@@ -22,3 +22,5 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+public/de_DE-thorsten-high.onnx
+src-tauri/resources/de_DE-thorsten-high.onnx

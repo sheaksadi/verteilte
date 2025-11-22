@@ -1,8 +1,23 @@
 services:
+  server:
+    build: ./server
+    container_name: verteilte-server
+    ports:
+      - "3000:3000"
+    environment:
+      - PORT=3000
+      - DATABASE_URL=postgres://user:password@db:5432/verteilte
+    volumes:
+      - ./server:/app
+      - /app/node_modules
+    depends_on:
+      - db
+    networks:
+      - verteilte-net
+
   db:
     image: postgres:15-alpine
     container_name: verteilte-db
-    network_mode: host
     environment:
       POSTGRES_USER: user
       POSTGRES_PASSWORD: password
@@ -10,6 +25,13 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./server/src/schema.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - verteilte-net
 
 volumes:
   postgres_data:
+
+
+networks:
+  verteilte-net:
+    driver: bridge
