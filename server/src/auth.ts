@@ -26,6 +26,8 @@ export const authenticateToken = (req: Request, res: Response, next: NextFunctio
 
 router.post('/register', async (req: Request, res: Response) => {
     const { username, password } = req.body;
+    const ip = req.ip || req.socket.remoteAddress;
+    console.log(`Registration attempt for user: ${username} from IP: ${ip}`);
 
     if (!username || !password) {
         return res.status(400).json({ error: 'Username and password are required' });
@@ -53,6 +55,8 @@ router.post('/register', async (req: Request, res: Response) => {
 
 router.post('/login', async (req: Request, res: Response) => {
     const { username, password } = req.body;
+    const ip = req.ip || req.socket.remoteAddress;
+    console.log(`Login attempt for user: ${username} from IP: ${ip}`);
 
     try {
         const result = await query('SELECT * FROM users WHERE username = $1', [username]);

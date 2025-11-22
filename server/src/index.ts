@@ -20,6 +20,17 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+
+import os from 'os';
+
 app.listen(port, () => {
+    const networkInterfaces = os.networkInterfaces();
+    const ip = Object.values(networkInterfaces)
+        .flat()
+        .find((iface) => iface?.family === 'IPv4' && !iface.internal)?.address;
+
     console.log(`Server running on port ${port}`);
+    if (ip) {
+        console.log(`Network access: http://${ip}:${port}`);
+    }
 });
