@@ -200,10 +200,10 @@ export const useWordStore = defineStore('words', () => {
             localStorage.setItem('token', data.token);
 
             await sync();
-            return true;
+            return { success: true };
         } catch (e) {
             console.error(e);
-            return false;
+            return { success: false, error: e instanceof Error ? e.message : 'Login failed' };
         }
     };
 
@@ -223,10 +223,10 @@ export const useWordStore = defineStore('words', () => {
             localStorage.setItem('token', data.token);
 
             await sync();
-            return true;
+            return { success: true };
         } catch (e) {
             console.error(e);
-            return false;
+            return { success: false, error: e instanceof Error ? e.message : 'Registration failed' };
         }
     };
 
@@ -295,6 +295,43 @@ export const useWordStore = defineStore('words', () => {
         algorithmSettings.value = await getAlgorithmSettings();
     };
 
+    const checkConnection = async () => {
+        try {
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+            const res = await fetch(`${apiUrl.value}/health`, {
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
+            if (res.ok) {
+                return { success: true, message: 'Connected to server' };
+            } else {
+                return { success: false, message: `Server returned ${res.status}` };
+            }
+        } catch (e) {
+            if (e instanceof Error) {
+                if (e.name === 'AbortError') return { success: false, message: 'Connection timed out (5s)' };
+                return { success: false, message: `Connection failed: ${e.message}` };
+            }
+            return { success: false, message: 'Connection failed' };
+        }
+    };
+
+    const pingServer = async () => {
+        try {
+            const res = await fetch(`${apiUrl.value}/ping`);
+            if (res.ok) {
+                return { success: true, message: 'Pong!' };
+            } else {
+                return { success: false, message: `Ping failed: ${res.status}` };
+            }
+        } catch (e) {
+            return { success: false, message: `Ping error: ${e instanceof Error ? e.message : String(e)}` };
+        }
+    };
+
     return {
         words,
         searchQuery,
@@ -323,6 +360,8 @@ export const useWordStore = defineStore('words', () => {
         sync,
         setApiUrl,
         saveSettings,
-        loadSettings
+        loadSettings,
+        checkConnection,
+        pingServer
     };
 });

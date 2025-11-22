@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useWordStore } from '@/stores/wordStore';
-import { Loader2 } from 'lucide-vue-next';
+import { Loader2, Activity } from 'lucide-vue-next';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -43,6 +43,28 @@ const updateServerUrl = () => {
   store.setApiUrl(`${host}:${serverPort.value}`);
 };
 
+const isPinging = ref(false);
+const pingMessage = ref('');
+
+const handlePing = async () => {
+  isPinging.value = true;
+  pingMessage.value = 'Pinging...';
+  
+  try {
+    const result = await store.pingServer();
+    pingMessage.value = result.success ? 'Pong!' : 'Failed';
+    
+    // Reset message after 2 seconds
+    setTimeout(() => {
+      pingMessage.value = '';
+    }, 2000);
+  } catch (e) {
+    pingMessage.value = 'Error';
+  } finally {
+    isPinging.value = false;
+  }
+};
+
 const handleLogin = async () => {
   if (!username.value || !password.value) return;
   
@@ -50,14 +72,14 @@ const handleLogin = async () => {
   error.value = '';
   
   try {
-    const success = await store.login(username.value, password.value);
-    if (success) {
+    const result = await store.login(username.value, password.value);
+    if (result.success) {
       emit('close');
     } else {
-      error.value = 'Invalid credentials';
+      error.value = result.error || 'Invalid credentials';
     }
   } catch (e) {
-    error.value = 'Login failed';
+    error.value = 'Login failed: ' + (e instanceof Error ? e.message : String(e));
   } finally {
     isLoading.value = false;
   }
@@ -70,14 +92,14 @@ const handleRegister = async () => {
   error.value = '';
   
   try {
-    const success = await store.register(username.value, password.value);
-    if (success) {
+    const result = await store.register(username.value, password.value);
+    if (result.success) {
       emit('close');
     } else {
-      error.value = 'Registration failed (username might be taken)';
+      error.value = result.error || 'Registration failed (username might be taken)';
     }
   } catch (e) {
-    error.value = 'Registration failed';
+    error.value = 'Registration failed: ' + (e instanceof Error ? e.message : String(e));
   } finally {
     isLoading.value = false;
   }
@@ -147,6 +169,13 @@ const handleRegister = async () => {
               <label class="text-xs font-medium text-muted-foreground">Port</label>
               <Input v-model="serverPort" placeholder="6900" class="h-8 text-xs" @change="updateServerUrl" />
             </div>
+          </div>
+          <div class="mt-2">
+            <Button variant="outline" size="sm" class="w-full h-8 text-xs" @click="handlePing" :disabled="isPinging">
+              <Activity v-if="isPinging" class="mr-2 h-3 w-3 animate-spin" />
+              <Activity v-else class="mr-2 h-3 w-3" />
+              {{ pingMessage || 'Ping Server' }}
+            </Button>
           </div>
         </div>
       </CardContent>

@@ -37,6 +37,34 @@ const impactStyle = ref<'light' | 'medium' | 'heavy' | 'soft' | 'rigid'>('medium
 const notificationType = ref<'success' | 'warning' | 'error'>('success');
 const vibrateDuration = ref(200);
 
+// Network Debug State
+const connectionStatus = ref<string>('Unknown');
+const connectionError = ref<string>('');
+const isCheckingConnection = ref(false);
+
+const checkConnection = async () => {
+  isCheckingConnection.value = true;
+  connectionStatus.value = 'Checking...';
+  connectionError.value = '';
+  
+  try {
+    const result = await store.checkConnection();
+    
+    if (result.success) {
+      connectionStatus.value = 'Connected';
+      connectionError.value = result.message || '';
+    } else {
+      connectionStatus.value = 'Failed';
+      connectionError.value = result.message || 'Unknown error';
+    }
+  } catch (e: any) {
+    connectionStatus.value = 'Failed';
+    connectionError.value = e.message || String(e);
+  } finally {
+    isCheckingConnection.value = false;
+  }
+};
+
 const localCardHeight = computed({
   get: () => props.cardHeight,
   set: (val) => emit('update:cardHeight', Number(val))
@@ -149,6 +177,20 @@ const resetAllCardsDebug = async () => {
         <Button @click="resetAllCardsDebug" variant="destructive" size="sm" class="w-full text-xs">
           Reset All Cards (Score=0, Due Now)
         </Button>
+      </div>
+
+      <!-- Network Debugger -->
+      <div class="mt-3 border-t pt-2">
+        <h4 class="text-xs font-semibold mb-2">Network Debugger</h4>
+        <div class="space-y-2">
+          <div class="text-xs">
+            <div>Status: <span :class="connectionStatus.startsWith('Connected') ? 'text-green-600' : connectionStatus === 'Checking...' ? 'text-yellow-600' : 'text-red-600'" class="font-mono">{{ connectionStatus }}</span></div>
+            <div v-if="connectionError" class="text-red-600 break-words mt-1">{{ connectionError }}</div>
+          </div>
+          <Button @click="checkConnection" :disabled="isCheckingConnection" size="sm" variant="secondary" class="w-full text-xs">
+            {{ isCheckingConnection ? 'Checking...' : 'Test Internet Connection' }}
+          </Button>
+        </div>
       </div>
 
       <!-- Score Intervals -->

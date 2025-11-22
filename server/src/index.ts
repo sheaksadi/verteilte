@@ -20,13 +20,18 @@ app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
+app.get('/ping', (req, res) => {
+    console.log('Ping received!');
+    res.json({ status: 'ok', message: 'pong' });
+});
+
 
 import os from 'os';
 
 import { migrate } from './db';
 
 migrate().then(() => {
-    app.listen(port, () => {
+    app.listen(Number(port), '0.0.0.0', () => {
         const networkInterfaces = os.networkInterfaces();
         const ip = Object.values(networkInterfaces)
             .flat()
