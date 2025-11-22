@@ -2,14 +2,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install pnpm via npm (Corepack failed)
-RUN npm install -g pnpm
-
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package*.json ./
+RUN npm install
 
 COPY . .
 
 EXPOSE 6900
 
-CMD ["/bin/sh", "-c", "pnpm run build && pnpm start"]
+CMD ["sh", "-c", "npm run build && npm start"]
