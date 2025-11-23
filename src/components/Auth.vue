@@ -17,30 +17,18 @@ const password = ref('');
 const isLoading = ref(false);
 const error = ref('');
 
-// Parse initial URL
-const parseUrl = (url: string) => {
-  try {
-    const u = new URL(url);
-    return {
-      host: `${u.protocol}//${u.hostname}`,
-      port: u.port || (u.protocol === 'https:' ? '443' : '80')
-    };
-  } catch (e) {
-    return { host: 'http://localhost', port: '6900' };
-  }
-};
-
-const { host, port } = parseUrl(store.apiUrl);
-const serverHost = ref(host);
-// If port is 3000 (old default), switch to 6900
-const serverPort = ref((port === '3000' || !port) ? '6900' : port);
+const serverUrl = ref(store.apiUrl);
 
 const updateServerUrl = () => {
-  let host = serverHost.value.replace(/\/$/, '');
-  if (!/^https?:\/\//.test(host)) {
-    host = 'http://' + host;
+  let url = serverUrl.value.trim();
+  // Add protocol if missing
+  if (!/^https?:\/\//.test(url)) {
+    url = 'https://' + url;
   }
-  store.setApiUrl(`${host}:${serverPort.value}`);
+  // Remove trailing slash
+  url = url.replace(/\/$/, '');
+  
+  store.setApiUrl(url);
 };
 
 const isPinging = ref(false);
@@ -160,14 +148,10 @@ const handleRegister = async () => {
         </Tabs>
 
         <div class="mt-6 pt-4 border-t">
-          <div class="grid grid-cols-3 gap-2">
-            <div class="col-span-2 space-y-1">
-              <label class="text-xs font-medium text-muted-foreground">Server Host</label>
-              <Input v-model="serverHost" placeholder="http://localhost" class="h-8 text-xs" @change="updateServerUrl" />
-            </div>
+          <div class="grid grid-cols-1 gap-2">
             <div class="space-y-1">
-              <label class="text-xs font-medium text-muted-foreground">Port</label>
-              <Input v-model="serverPort" placeholder="6900" class="h-8 text-xs" @change="updateServerUrl" />
+              <label class="text-xs font-medium text-muted-foreground">Server URL</label>
+              <Input v-model="serverUrl" placeholder="https://verteilte.joleif.dev" class="h-8 text-xs" @change="updateServerUrl" />
             </div>
           </div>
           <div class="mt-2">

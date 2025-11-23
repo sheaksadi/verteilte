@@ -4,7 +4,7 @@ import { useNow } from '@vueuse/core';
 import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:6900';
+const API_URL = import.meta.env.VITE_API_URL || 'https://verteilte.joleif.dev';
 
 export const useWordStore = defineStore('words', () => {
     // State
