@@ -11,6 +11,7 @@ export const useWordStore = defineStore('words', () => {
     const words = ref<Word[]>([]);
     const searchQuery = ref('');
     const capturedImage = ref<string | null>(null);
+    const aiStrategy = ref<'all' | 'important' | 'no-common'>('important');
     const isLoading = ref(true);
     const dictionaryInfo = ref<DictionaryInfo | null>(null);
     const debugInfo = ref({
@@ -376,6 +377,7 @@ export const useWordStore = defineStore('words', () => {
         checkConnection,
         pingServer,
         pingGoogle,
-        capturedImage
+        capturedImage,
+        aiStrategy
     };
 });

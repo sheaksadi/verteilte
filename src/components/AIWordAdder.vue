@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { ref } from 'vue';
+import { ref, computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Camera, Image as ImageIcon, Sparkles, Check, X, Plus, Loader2 } from 'lucide-vue-next';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Label } from '@/components/ui/label';
 import { GoogleGenAI } from "@google/genai";
 import { useRouter } from 'vue-router';
 import { useWordStore } from '@/stores/wordStore';
 import { searchDictionary, levenshteinDistance } from '@/lib/dictionary';
 
+import { storeToRefs } from 'pinia';
+
 const router = useRouter();
 const store = useWordStore();
+const { aiStrategy } = storeToRefs(store);
 
 const imagePreview = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
@@ -24,7 +29,9 @@ const detectedWords = ref<Array<{
   selected: boolean;
   status: 'new' | 'exact' | 'similar';
   similarTo?: string;
+  category: 'common' | 'important' | 'other';
 }>>([]);
+
 
 const triggerCamera = () => {
   router.push('/camera');
@@ -102,7 +109,15 @@ const analyzeImage = async () => {
               },
             },
             { 
-              text: "Analyze this image. If it contains text (like a book page), extract the most important German words and their English translations. If it's an object, identify the object in German and provide the English translation. Return ONLY a JSON array of objects with 'original', 'translation', and 'article' keys. Ensure standard German capitalization (e.g., nouns capitalized). If a word is in plural form, convert it to the singular form. Do not include markdown formatting." 
+              text: `Analyze this image. Extract ALL unique German words found in the text.
+              For each word, determine its category: 
+              'common' (stop words, basic vocabulary like 'und', 'der', 'ist' and very common words), 
+              'important' (words central to understanding the text), or 
+              'other' (everything else). 
+              Return ONLY a JSON array of objects with 'original', 'translation', 'article', and 'category' keys. 
+              Ensure standard German capitalization. If a word is in plural form, convert it to the singular form. 
+              Do not include markdown formatting.
+              Keep in mind, these words are use as vocabulary to be learned.`
             },
           ],
         },
@@ -157,7 +172,7 @@ const analyzeImage = async () => {
               }
             }
 
-            return { ...w, article, selected, status, similarTo };
+            return { ...w, article, selected, status, similarTo, category: w.category || 'other' };
           }));
 
           detectedWords.value = processedWords;
@@ -174,23 +189,30 @@ const analyzeImage = async () => {
   }
 };
 
-const toggleWordSelection = (index: number) => {
-  if (detectedWords.value[index].status === 'exact') return;
-  detectedWords.value[index].selected = !detectedWords.value[index].selected;
+const filteredDetectedWords = computed(() => {
+  if (aiStrategy.value === 'all') return detectedWords.value;
+  if (aiStrategy.value === 'no-common') return detectedWords.value.filter(w => w.category !== 'common');
+  if (aiStrategy.value === 'important') return detectedWords.value.filter(w => w.category === 'important');
+  return detectedWords.value;
+});
+
+const toggleWordSelection = (word: any) => {
+  if (word.status === 'exact') return;
+  word.selected = !word.selected;
 };
 
 const selectAllWords = () => {
-  detectedWords.value.forEach(w => {
+  filteredDetectedWords.value.forEach(w => {
     if (w.status !== 'exact') w.selected = true;
   });
 };
 
 const deselectAllWords = () => {
-  detectedWords.value.forEach(w => w.selected = false);
+  filteredDetectedWords.value.forEach(w => w.selected = false);
 };
 
 const addSelectedWords = async () => {
-  const selected = detectedWords.value.filter(w => w.selected);
+  const selected = filteredDetectedWords.value.filter(w => w.selected);
   for (const word of selected) {
     await store.addWord(word.original, word.translation, word.article);
   }
@@ -231,6 +253,40 @@ const addSelectedWords = async () => {
       </Card>
     </div>
 
+    <!-- Strategy Selection (Initial) -->
+    <div v-if="!imagePreview" class="mt-8">
+      <h3 class="text-lg font-semibold mb-4">Extraction Strategy</h3>
+      <RadioGroup v-model="aiStrategy" class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="flex items-start space-x-2 border rounded-lg p-4 cursor-pointer transition-colors"
+             :class="aiStrategy === 'all' ? 'border-primary bg-primary/5' : 'hover:bg-accent'"
+             @click="aiStrategy = 'all'">
+          <RadioGroupItem value="all" id="r-all" class="mt-1" />
+          <div class="grid gap-1.5">
+            <Label htmlFor="r-all" class="font-semibold cursor-pointer">All Words</Label>
+            <p class="text-sm text-muted-foreground">Extract every single German word found in the image.</p>
+          </div>
+        </div>
+        <div class="flex items-start space-x-2 border rounded-lg p-4 cursor-pointer transition-colors"
+             :class="aiStrategy === 'important' ? 'border-primary bg-primary/5' : 'hover:bg-accent'"
+             @click="aiStrategy = 'important'">
+          <RadioGroupItem value="important" id="r-important" class="mt-1" />
+          <div class="grid gap-1.5">
+            <Label htmlFor="r-important" class="font-semibold cursor-pointer">Most Important</Label>
+            <p class="text-sm text-muted-foreground">Extract only key words central to the meaning.</p>
+          </div>
+        </div>
+        <div class="flex items-start space-x-2 border rounded-lg p-4 cursor-pointer transition-colors"
+             :class="aiStrategy === 'no-common' ? 'border-primary bg-primary/5' : 'hover:bg-accent'"
+             @click="aiStrategy = 'no-common'">
+          <RadioGroupItem value="no-common" id="r-no-common" class="mt-1" />
+          <div class="grid gap-1.5">
+            <Label htmlFor="r-no-common" class="font-semibold cursor-pointer">No Common Words</Label>
+            <p class="text-sm text-muted-foreground">Extract all words except common stop words.</p>
+          </div>
+        </div>
+      </RadioGroup>
+    </div>
+
     <!-- Analysis View -->
     <div v-else class="space-y-6">
       <div class="relative rounded-lg overflow-hidden border bg-muted/30 max-h-[400px] flex justify-center">
@@ -252,8 +308,17 @@ const addSelectedWords = async () => {
           <div class="flex items-center justify-between mb-4">
             <h3 class="font-semibold flex items-center gap-2">
               <Sparkles class="h-4 w-4 text-primary" />
-              Detected Words ({{ detectedWords.length }})
+              Detected Words ({{ filteredDetectedWords.length }})
             </h3>
+            
+            <!-- Strategy Selection -->
+            <div class="flex items-center gap-2">
+                <select v-model="aiStrategy" class="text-xs border rounded px-2 py-1 bg-background">
+                    <option value="all">All Words</option>
+                    <option value="important">Most Important</option>
+                    <option value="no-common">No Common</option>
+                </select>
+            </div>
             <div class="flex gap-2 text-sm">
               <button @click="selectAllWords" class="text-primary hover:underline">Select All</button>
               <span class="text-muted-foreground">|</span>
@@ -262,8 +327,8 @@ const addSelectedWords = async () => {
           </div>
           
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 mb-6">
-            <button v-for="(word, idx) in detectedWords" :key="idx"
-              @click="toggleWordSelection(idx)"
+            <button v-for="(word, idx) in filteredDetectedWords" :key="idx"
+              @click="toggleWordSelection(word)"
               :disabled="word.status === 'exact'"
               class="flex flex-col gap-1 p-3 border rounded-lg transition-all text-left relative hover:shadow-sm"
               :class="[
@@ -295,9 +360,9 @@ const addSelectedWords = async () => {
             </button>
           </div>
 
-          <Button @click="addSelectedWords" :disabled="!detectedWords.some(w => w.selected)" class="w-full h-12 text-lg">
+          <Button @click="addSelectedWords" :disabled="!filteredDetectedWords.some(w => w.selected)" class="w-full h-12 text-lg">
             <Plus class="h-5 w-5 mr-2" />
-            Add {{ detectedWords.filter(w => w.selected).length }} Selected Word{{ detectedWords.filter(w => w.selected).length !== 1 ? 's' : '' }}
+            Add {{ filteredDetectedWords.filter(w => w.selected).length }} Selected Word{{ filteredDetectedWords.filter(w => w.selected).length !== 1 ? 's' : '' }}
           </Button>
         </CardContent>
       </Card>
