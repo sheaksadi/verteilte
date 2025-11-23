@@ -65,7 +65,8 @@ const selectSuggestion = (s: any) => {
 const addWord = async () => {
   if (!newOriginal.value || !newTranslation.value) return;
 
-  await store.addWord(newOriginal.value, newTranslation.value, newArticle.value);
+  const article = newArticle.value === 'none' ? '' : newArticle.value;
+  await store.addWord(newOriginal.value, newTranslation.value, article);
   
   // Reset form
   newOriginal.value = '';
@@ -195,7 +196,7 @@ const formatNextDue = (timestamp: number): string => {
                 <SelectItem value="der">Der (Masc)</SelectItem>
                 <SelectItem value="die">Die (Fem)</SelectItem>
                 <SelectItem value="das">Das (Neut)</SelectItem>
-                <SelectItem value="">None</SelectItem>
+                <SelectItem value="none">None</SelectItem>
               </SelectContent>
             </Select>
           </div>

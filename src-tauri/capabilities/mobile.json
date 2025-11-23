@@ -12,6 +12,10 @@
         "haptics:allow-impact-feedback",
         "haptics:allow-notification-feedback",
         "haptics:allow-selection-feedback",
-        "haptics:allow-vibrate"
+        "haptics:allow-vibrate",
+        "fs:default",
+        "fs:allow-appdata-write",
+        "fs:allow-appdata-read",
+        "fs:allow-exists"
     ]
 }
