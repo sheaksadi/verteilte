@@ -3,10 +3,11 @@ import { ref, nextTick } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
-import { Plus, ArrowLeft, Search, Trash2, Upload, Copy, Check } from 'lucide-vue-next';
+import { Plus, ArrowLeft, Search, Trash2, Upload, Copy, Check, Camera, X, Image as ImageIcon } from 'lucide-vue-next';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { searchDictionary, searchByMeaning, type DictionaryEntry } from '@/lib/dictionary';
+import CameraCapture from './CameraCapture.vue';
 
 const emit = defineEmits<{
   (e: 'close'): void;
@@ -36,6 +37,40 @@ const suggestions = ref<DictionaryEntry[]>([]);
 const showSuggestions = ref(false);
 const translationSuggestions = ref<DictionaryEntry[]>([]);
 const showTranslationSuggestions = ref(false);
+
+const imagePreview = ref<string | null>(null);
+const fileInput = ref<HTMLInputElement | null>(null);
+const showCamera = ref(false);
+
+const triggerCamera = () => {
+  showCamera.value = true;
+};
+
+const handleCameraCapture = (imageData: string) => {
+  imagePreview.value = imageData;
+  showCamera.value = false;
+};
+
+const triggerGallery = () => {
+  fileInput.value?.click();
+};
+
+const handleImageUpload = (event: Event) => {
+  const input = event.target as HTMLInputElement;
+  if (input.files && input.files[0]) {
+    const file = input.files[0];
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      imagePreview.value = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  }
+};
+
+const clearImage = () => {
+  imagePreview.value = null;
+  if (fileInput.value) fileInput.value.value = '';
+};
 
 const updateSuggestions = async () => {
   const searchTerm = newWordOriginal.value.trim();
@@ -109,6 +144,7 @@ const addWord = async () => {
     newWordOriginal.value = '';
     newWordTranslation.value = '';
     newWordArticle.value = '';
+    clearImage();
     showSuggestions.value = false;
 
     // Focus back on original input for quick entry
@@ -154,6 +190,12 @@ const formatNextDue = (timestamp: number): string => {
           :title="exportSuccess ? 'Copied to clipboard!' : 'Export words to clipboard'">
           <Check v-if="exportSuccess" class="h-5 w-5 text-green-600" />
           <Copy v-else class="h-5 w-5" />
+        </Button>
+        <Button variant="outline" size="icon" @click="triggerCamera" class="rounded-full h-10 w-10 bg-background hover:bg-accent" title="Take Photo">
+          <Camera class="h-5 w-5" />
+        </Button>
+        <Button variant="outline" size="icon" @click="triggerGallery" class="rounded-full h-10 w-10 bg-background hover:bg-accent" title="Pick Image">
+          <ImageIcon class="h-5 w-5" />
         </Button>
         <Button variant="outline" size="icon" @click="$emit('open-import-dialog')" class="rounded-full h-10 w-10 bg-background hover:bg-accent" title="Import words">
           <Upload class="h-5 w-5" />
@@ -234,6 +276,27 @@ const formatNextDue = (timestamp: number): string => {
             <Input id="newWordArticle" v-model="newWordArticle" placeholder="der/die/das"
               @keyup.enter="addWord()" class="text-base h-11 bg-background/50 focus:bg-background transition-colors text-center" />
           </div>
+
+
+
+          <!-- Image Preview -->
+          <div class="md:col-span-12" v-if="imagePreview">
+            <label class="text-xs font-medium text-muted-foreground mb-1.5 block ml-1">Image</label>
+            <div class="flex items-center gap-4">
+              <input type="file" ref="fileInput" accept="image/*" class="hidden" @change="handleImageUpload" />
+              
+              <div class="relative h-32 w-32 rounded-md overflow-hidden border bg-muted">
+                <img :src="imagePreview" class="h-full w-full object-cover" />
+                <button @click="clearImage" class="absolute top-1 right-1 bg-black/50 hover:bg-black/70 text-white rounded-full p-1 transition-colors">
+                  <X class="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+          <div class="hidden">
+             <!-- Hidden inputs if preview is not shown -->
+             <input type="file" ref="fileInput" accept="image/*" class="hidden" @change="handleImageUpload" />
+          </div>
         </div>
         
         <div class="mt-4 flex justify-end">
@@ -300,5 +363,8 @@ const formatNextDue = (timestamp: number): string => {
         </div>
       </div>
     </div>
+
   </div>
+
+  <CameraCapture v-if="showCamera" @capture="handleCameraCapture" @close="showCamera = false" />
 </template>
