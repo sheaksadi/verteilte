@@ -13,6 +13,7 @@ CREATE TABLE IF NOT EXISTS words (
   original TEXT NOT NULL,
   translation TEXT NOT NULL,
   article TEXT DEFAULT '',
+  language VARCHAR(10) NOT NULL DEFAULT 'de',
   score INTEGER DEFAULT 0,
   created_at BIGINT NOT NULL,
   last_reviewed_at BIGINT DEFAULT 0,
@@ -23,3 +24,4 @@ CREATE TABLE IF NOT EXISTS words (
 
 CREATE INDEX IF NOT EXISTS idx_words_user_id ON words(user_id);
 CREATE INDEX IF NOT EXISTS idx_words_updated_at ON words(updated_at);
+CREATE INDEX IF NOT EXISTS idx_words_language ON words(language);

@@ -26,4 +26,5 @@ tauri-plugin-sql = { version = "2.3.1", features = ["sqlite"] }
 flate2 = "1.1.5"
 tauri-plugin-clipboard-manager = "2.3.2"
 tauri-plugin-haptics = "2.3.2"
+tauri-plugin-fs = "2.4.4"
 

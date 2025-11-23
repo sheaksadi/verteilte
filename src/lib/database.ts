@@ -5,6 +5,7 @@ export interface Word {
   original: string;
   translation: string;
   article: string;
+  language: string;
   score: number;
   createdAt: number;
   lastReviewedAt: number;
@@ -201,6 +202,18 @@ export async function initDatabase(): Promise<Database | null> {
         `);
       }
 
+      // Check if language column exists
+      try {
+        const result = await db.select<any[]>('PRAGMA table_info(words)');
+        const hasLanguage = result.some(col => col.name === 'language');
+        if (!hasLanguage) {
+          console.log('Adding language column to words table...');
+          await db.execute("ALTER TABLE words ADD COLUMN language TEXT NOT NULL DEFAULT 'de'");
+        }
+      } catch (e) {
+        console.error('Failed to check/add language column:', e);
+      }
+
       console.log('Database loaded successfully');
     } catch (error) {
       console.error('Error initializing database:', error);
@@ -228,14 +241,16 @@ export async function getDatabase(): Promise<Database | null> {
   return initDatabase();
 }
 
-export async function getAllWords(): Promise<Word[]> {
+export async function getAllWords(language: string = 'de'): Promise<Word[]> {
   const database = await initDatabase();
 
   if (!database) {
-    return [...inMemoryWords].filter(w => !w.deletedAt).sort((a, b) => a.nextReviewAt - b.nextReviewAt);
+    return [...inMemoryWords]
+      .filter(w => !w.deletedAt && (w.language === language || (!w.language && language === 'de')))
+      .sort((a, b) => a.nextReviewAt - b.nextReviewAt);
   }
 
-  const result = await database.select<Word[]>('SELECT * FROM words WHERE deletedAt IS NULL ORDER BY nextReviewAt ASC');
+  const result = await database.select<Word[]>('SELECT * FROM words WHERE deletedAt IS NULL AND language = $1 ORDER BY nextReviewAt ASC', [language]);
   return result;
 }
 
@@ -264,12 +279,14 @@ export async function upsertWords(words: Word[]): Promise<void> {
   }
 
   for (const w of words) {
+    // Default language to 'de' if missing
+    const lang = w.language || 'de';
     await database.execute(
-      `INSERT INTO words (id, original, translation, article, score, createdAt, lastReviewedAt, nextReviewAt, updatedAt, deletedAt)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+      `INSERT INTO words (id, original, translation, article, language, score, createdAt, lastReviewedAt, nextReviewAt, updatedAt, deletedAt)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
              ON CONFLICT(id) DO UPDATE SET
-             original = $2, translation = $3, article = $4, score = $5, createdAt = $6, lastReviewedAt = $7, nextReviewAt = $8, updatedAt = $9, deletedAt = $10`,
-      [w.id, w.original, w.translation, w.article, w.score, w.createdAt, w.lastReviewedAt, w.nextReviewAt, w.updatedAt, w.deletedAt]
+             original = $2, translation = $3, article = $4, language = $5, score = $6, createdAt = $7, lastReviewedAt = $8, nextReviewAt = $9, updatedAt = $10, deletedAt = $11`,
+      [w.id, w.original, w.translation, w.article, lang, w.score, w.createdAt, w.lastReviewedAt, w.nextReviewAt, w.updatedAt, w.deletedAt]
     );
   }
 }
@@ -278,11 +295,13 @@ export async function addWord(word: Omit<Word, 'id' | 'updatedAt' | 'deletedAt'>
   const database = await initDatabase();
   const now = Date.now();
   const newId = generateUUID();
+  const lang = word.language || 'de';
 
   if (!database) {
     const newWord: Word = {
       ...word,
       id: newId,
+      language: lang,
       score: word.score ?? 0,
       createdAt: word.createdAt ?? now,
       lastReviewedAt: word.lastReviewedAt ?? 0,
@@ -296,12 +315,13 @@ export async function addWord(word: Omit<Word, 'id' | 'updatedAt' | 'deletedAt'>
   }
 
   await database.execute(
-    'INSERT INTO words (id, original, translation, article, score, createdAt, lastReviewedAt, nextReviewAt, updatedAt, deletedAt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)',
+    'INSERT INTO words (id, original, translation, article, language, score, createdAt, lastReviewedAt, nextReviewAt, updatedAt, deletedAt) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)',
     [
       newId,
       word.original,
       word.translation,
       word.article || '',
+      lang,
       word.score ?? 0,
       word.createdAt ?? now,
       word.lastReviewedAt ?? 0,
@@ -477,6 +497,7 @@ export async function importWords(text: string): Promise<{ added: number; skippe
         original,
         translation,
         article,
+        language: 'de', // Default to German for imports for now
         score: 0,
         createdAt: Date.now(),
         lastReviewedAt: 0,

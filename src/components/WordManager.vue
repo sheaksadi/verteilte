@@ -7,12 +7,20 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Plus, Trash2, Volume2, Upload } from 'lucide-vue-next';
+import { Search, Plus, Trash2, Volume2, Upload, Globe, Download } from 'lucide-vue-next';
 import { searchDictionary } from '@/lib/dictionary';
 import ImportDialog from '@/components/ImportDialog.vue';
+import { Progress } from '@/components/ui/progress';
 
 const store = useWordStore();
-const { filteredWords, searchQuery } = storeToRefs(store);
+const { filteredWords, searchQuery, currentLanguage, downloadProgress, downloadStatus } = storeToRefs(store);
+
+const languages = [
+  { code: 'de', name: 'German', flag: '🇩🇪' },
+  { code: 'es', name: 'Spanish', flag: '🇪🇸' },
+  { code: 'fr', name: 'French', flag: '🇫🇷' },
+  { code: 'it', name: 'Italian', flag: '🇮🇹' },
+];
 
 // Local state for new word form
 const newOriginal = ref('');
@@ -113,7 +121,19 @@ const formatNextDue = (timestamp: number): string => {
         <h1 class="text-3xl font-bold text-primary tracking-tight">My Words</h1>
         <p class="text-muted-foreground mt-1">Manage your vocabulary collection</p>
       </div>
-      <div class="flex gap-2">
+      <div class="flex gap-2 items-center">
+        <Select :model-value="currentLanguage" @update:model-value="store.setLanguage">
+          <SelectTrigger class="w-[140px]">
+            <Globe class="w-4 h-4 mr-2" />
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="lang in languages" :key="lang.code" :value="lang.code">
+              <span class="mr-2">{{ lang.flag }}</span> {{ lang.name }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+
         <Button variant="outline" size="icon" @click="showImportDialog = true">
           <Upload class="h-4 w-4" />
         </Button>
@@ -122,6 +142,22 @@ const formatNextDue = (timestamp: number): string => {
         </Button>
       </div>
     </div>
+
+    <!-- Download Progress -->
+    <Card v-if="downloadProgress !== null" class="animate-in fade-in slide-in-from-top-2">
+      <CardContent class="p-4 flex items-center gap-4">
+        <div class="bg-primary/10 p-2 rounded-full">
+          <Download class="h-5 w-5 text-primary animate-bounce" />
+        </div>
+        <div class="flex-1 space-y-1">
+          <div class="flex justify-between text-sm font-medium">
+            <span>{{ downloadStatus }}</span>
+            <span>{{ downloadProgress }}%</span>
+          </div>
+          <Progress :model-value="downloadProgress" class="h-2" />
+        </div>
+      </CardContent>
+    </Card>
 
     <!-- Add Word Form -->
     <Card v-if="isAdding" class="animate-in slide-in-from-top-4 duration-300">

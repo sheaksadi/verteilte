@@ -12,6 +12,7 @@ export const useWordStore = defineStore('words', () => {
     const searchQuery = ref('');
     const capturedImage = ref<string | null>(null);
     const aiStrategy = ref<'all' | 'important' | 'no-common'>('important');
+    const currentLanguage = ref<string>(localStorage.getItem('currentLanguage') || 'de');
     const isLoading = ref(true);
     const dictionaryInfo = ref<DictionaryInfo | null>(null);
     const debugInfo = ref({
@@ -68,7 +69,7 @@ export const useWordStore = defineStore('words', () => {
 
     const loadWords = async () => {
         try {
-            words.value = await getAllWords();
+            words.value = await getAllWords(currentLanguage.value);
             debugInfo.value.dbWordsCount = words.value.length;
             // Load settings as well
             algorithmSettings.value = await getAlgorithmSettings();
@@ -84,6 +85,7 @@ export const useWordStore = defineStore('words', () => {
             original: original.trim(),
             translation: translation.trim(),
             article: article.trim(),
+            language: currentLanguage.value,
             score: 0,
             createdAt: now,
             lastReviewedAt: 0,
@@ -169,12 +171,24 @@ export const useWordStore = defineStore('words', () => {
 
     const initDictionary = async () => {
         try {
-            const info = await initializeDictionary();
+            // Pass current language to initializeDictionary
+            // We need to update initializeDictionary signature in lib/dictionary.ts first?
+            // Actually, let's handle the download logic here or in lib/dictionary.ts
+            // For now, let's assume initializeDictionary takes language
+            const { initializeDictionary } = await import('@/lib/dictionary');
+            const info = await initializeDictionary(currentLanguage.value);
+
             if (info) {
                 dictionaryInfo.value = info;
-                debugInfo.value.dictionaryLoaded = true;
+                debugInfo.value.dictionaryLoaded = info.exists;
                 debugInfo.value.dictionaryVersion = info.version;
                 debugInfo.value.dictionaryLogs = info.logs;
+
+                if (!info.exists) {
+                    // Dictionary missing, trigger download
+                    console.log('[Store] Dictionary missing, triggering download...');
+                    downloadDictionary(currentLanguage.value);
+                }
             } else {
                 debugInfo.value.dictionaryLogs = ['[App] Browser mode - dictionary not available'];
             }
@@ -183,6 +197,66 @@ export const useWordStore = defineStore('words', () => {
             debugInfo.value.loadError = errorMsg;
             debugInfo.value.dictionaryLogs = [`[App ERROR] ${errorMsg}`];
         }
+    };
+
+    const downloadProgress = ref<number | null>(null);
+    const downloadStatus = ref<string>('');
+
+    const downloadDictionary = async (lang: string) => {
+        if (downloadProgress.value !== null) return; // Already downloading
+
+        try {
+            downloadStatus.value = 'Downloading dictionary...';
+            downloadProgress.value = 0;
+
+            const response = await fetch(`${apiUrl.value}/dictionaries/${lang}.db.gz`);
+            if (!response.ok) throw new Error(`Failed to download dictionary: ${response.statusText}`);
+
+            const reader = response.body?.getReader();
+            const contentLength = +response.headers.get('Content-Length')!;
+            let receivedLength = 0;
+            const chunks = [];
+
+            if (!reader) throw new Error('Failed to get reader');
+
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                chunks.push(value);
+                receivedLength += value.length;
+                downloadProgress.value = Math.round((receivedLength / contentLength) * 100);
+            }
+
+            const blob = new Blob(chunks);
+            const arrayBuffer = await blob.arrayBuffer();
+            const uint8Array = new Uint8Array(arrayBuffer);
+
+            downloadStatus.value = 'Saving dictionary...';
+
+            // Save to app data dir using tauri-plugin-fs
+            const { BaseDirectory, writeFile } = await import('@tauri-apps/plugin-fs');
+            await writeFile(`dictionary_${lang}.db.gz`, uint8Array, { baseDir: BaseDirectory.AppData });
+
+            downloadStatus.value = 'Dictionary downloaded. Initializing...';
+            downloadProgress.value = null;
+
+            // Re-initialize dictionary
+            await initDictionary();
+
+        } catch (e) {
+            console.error('Download failed:', e);
+            downloadStatus.value = `Download failed: ${e instanceof Error ? e.message : String(e)}`;
+            downloadProgress.value = null;
+        }
+    };
+
+    const setLanguage = async (lang: string) => {
+        if (currentLanguage.value === lang) return;
+        currentLanguage.value = lang;
+        localStorage.setItem('currentLanguage', lang);
+        await loadWords();
+        await initDictionary();
     };
 
     // Auth Actions
@@ -378,6 +452,11 @@ export const useWordStore = defineStore('words', () => {
         pingServer,
         pingGoogle,
         capturedImage,
-        aiStrategy
+        aiStrategy,
+        currentLanguage,
+        downloadProgress,
+        downloadStatus,
+        setLanguage,
+        downloadDictionary
     };
 });

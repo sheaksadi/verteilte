@@ -28,13 +28,18 @@ function isTauri(): boolean {
 }
 
 // Initialize dictionary database (call this on app startup)
-export async function initializeDictionary(): Promise<DictionaryInfo | null> {
+export async function initializeDictionary(language: string = 'de'): Promise<DictionaryInfo | null> {
   try {
-    console.log('[Dictionary] Attempting to initialize...');
+    console.log(`[Dictionary] Attempting to initialize for language: ${language}...`);
 
     // Try to invoke the command - if it fails, we're not in Tauri
-    const info = await invoke<DictionaryInfo>('ensure_dictionary_db');
+    const info = await invoke<DictionaryInfo>('ensure_dictionary_db', { lang: language });
     console.log('[Dictionary] Database ready:', info);
+
+    if (!info.exists) {
+      console.log('[Dictionary] Database does not exist locally. Skipping load.');
+      return info;
+    }
 
     // Load the database connection using the absolute path from info
     // Remove the file:// prefix if present and use sqlite: protocol

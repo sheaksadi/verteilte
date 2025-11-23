@@ -109,13 +109,13 @@ const analyzeImage = async () => {
               },
             },
             { 
-              text: `Analyze this image. Extract ALL unique German words found in the text.
+              text: `Analyze this image. Extract ALL unique ${store.currentLanguage === 'de' ? 'German' : store.currentLanguage === 'es' ? 'Spanish' : store.currentLanguage === 'fr' ? 'French' : store.currentLanguage === 'it' ? 'Italian' : 'German'} words found in the text.
               For each word, determine its category: 
-              'common' (stop words, basic vocabulary like 'und', 'der', 'ist' and very common words), 
+              'common' (stop words, basic vocabulary and very common words), 
               'important' (words central to understanding the text), or 
               'other' (everything else). 
               Return ONLY a JSON array of objects with 'original', 'translation', 'article', and 'category' keys. 
-              Ensure standard German capitalization. If a word is in plural form, convert it to the singular form. 
+              Ensure standard capitalization. If a word is in plural form, convert it to the singular form. 
               Do not include markdown formatting.
               Keep in mind, these words are use as vocabulary to be learned.`
             },
@@ -127,9 +127,16 @@ const analyzeImage = async () => {
     const text = response.text;
     if (text) {
       try {
-        // Clean up markdown code blocks if present
-        const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-        const words = JSON.parse(cleanText);
+        // Find the JSON array in the response
+        const start = text.indexOf('[');
+        const end = text.lastIndexOf(']');
+        
+        if (start === -1 || end === -1) {
+          throw new Error('No JSON array found in response');
+        }
+
+        const jsonStr = text.substring(start, end + 1);
+        const words = JSON.parse(jsonStr);
         if (Array.isArray(words)) {
           // Cross-check with dictionary and existing words
           const processedWords = await Promise.all(words.map(async (w: any) => {

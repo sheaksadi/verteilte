@@ -26,9 +26,13 @@ app.get('/ping', (req, res) => {
 });
 
 
+import path from 'path';
 import os from 'os';
 
 import { migrate } from './db';
+
+// Serve dictionary files
+app.use('/dictionaries', express.static(path.join(__dirname, '../dictionaries')));
 
 migrate().then(() => {
     app.listen(Number(port), '0.0.0.0', () => {

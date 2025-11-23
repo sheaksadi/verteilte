@@ -31,9 +31,7 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../public/dictionary.db.gz"
-    ]
+    "resources": []
   },
   "plugins": {
     "android": {
