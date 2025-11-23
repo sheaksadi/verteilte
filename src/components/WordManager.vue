@@ -7,7 +7,7 @@ import { Plus, ArrowLeft, Search, Trash2, Upload, Copy, Check, Camera, X, Image 
 import { GoogleGenAI } from "@google/genai";
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
-import { searchDictionary, searchByMeaning, type DictionaryEntry } from '@/lib/dictionary';
+import { searchDictionary, searchByMeaning, levenshteinDistance, type DictionaryEntry } from '@/lib/dictionary';
 import CameraCapture from './CameraCapture.vue';
 
 const emit = defineEmits<{
@@ -46,7 +46,14 @@ const apiKey = ref(localStorage.getItem('gemini_api_key') || '');
 const showApiKeyInput = ref(false);
 const isAnalyzing = ref(false);
 
-const detectedWords = ref<Array<{ original: string; translation: string; article: string; selected: boolean }>>([]);
+const detectedWords = ref<Array<{ 
+  original: string; 
+  translation: string; 
+  article: string; 
+  selected: boolean;
+  status: 'new' | 'exact' | 'similar';
+  similarTo?: string;
+}>>([]);
 
 const saveApiKey = () => {
   localStorage.setItem('gemini_api_key', apiKey.value);
@@ -92,32 +99,52 @@ const analyzeImage = async () => {
         const cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
         const words = JSON.parse(cleanText);
         if (Array.isArray(words)) {
-          // Cross-check with dictionary
+          // Cross-check with dictionary and existing words
           const processedWords = await Promise.all(words.map(async (w: any) => {
+            let article = w.article;
+            let status: 'new' | 'exact' | 'similar' = 'new';
+            let similarTo: string | undefined = undefined;
+            let selected = true;
+
+            // 1. Dictionary Check for Article
             try {
               const results = await searchDictionary(w.original, 1);
-              // Check if we found an exact match or close match
               const match = results.find(r => r.word.toLowerCase() === w.original.toLowerCase());
               
               if (match && match.gender) {
-                let article = w.article;
                 if (match.gender === 'masc') article = 'der';
                 else if (match.gender === 'fem') article = 'die';
                 else if (match.gender === 'neut') article = 'das';
-                return { ...w, article, selected: false };
               }
             } catch (err) {
               console.error('Dictionary lookup failed for', w.original, err);
             }
-            return { ...w, selected: false };
+
+            // 2. Check against existing words in store
+            const lowerOriginal = w.original.toLowerCase();
+            for (const existing of store.words) {
+              const existingLower = existing.original.toLowerCase();
+              
+              if (existingLower === lowerOriginal) {
+                status = 'exact';
+                selected = false;
+                break;
+              }
+              
+              // Check for similarity (distance <= 2 for words > 4 chars, else 1)
+              const threshold = w.original.length > 4 ? 2 : 1;
+              const dist = levenshteinDistance(lowerOriginal, existingLower);
+              if (dist <= threshold) {
+                status = 'similar';
+                similarTo = existing.original;
+                // Don't break here, exact match takes precedence if found later
+              }
+            }
+
+            return { ...w, article, selected, status, similarTo };
           }));
 
           detectedWords.value = processedWords;
-          
-          // If only one word, auto-select it
-          if (processedWords.length === 1) {
-            detectedWords.value[0].selected = true;
-          }
         }
       } catch (e) {
         console.error('Failed to parse AI response:', e);
@@ -132,11 +159,14 @@ const analyzeImage = async () => {
 };
 
 const toggleWordSelection = (index: number) => {
+  if (detectedWords.value[index].status === 'exact') return;
   detectedWords.value[index].selected = !detectedWords.value[index].selected;
 };
 
 const selectAllWords = () => {
-  detectedWords.value.forEach(w => w.selected = true);
+  detectedWords.value.forEach(w => {
+    if (w.status !== 'exact') w.selected = true;
+  });
 };
 
 const deselectAllWords = () => {
@@ -448,15 +478,30 @@ const formatNextDue = (timestamp: number): string => {
               <div class="flex flex-wrap gap-2 mb-4">
                 <button v-for="(word, idx) in detectedWords" :key="idx"
                   @click="toggleWordSelection(idx)"
-                  class="flex items-center gap-2 px-3 py-1.5 border rounded-full transition-all text-sm text-left"
-                  :class="word.selected ? 'bg-primary/10 border-primary text-primary' : 'bg-background border-input hover:bg-accent'">
-                  <div class="w-4 h-4 rounded-full border flex items-center justify-center mr-1"
-                    :class="word.selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground'">
-                    <Check v-if="word.selected" class="h-3 w-3" />
+                  :disabled="word.status === 'exact'"
+                  class="flex flex-col gap-0.5 px-3 py-1.5 border rounded-lg transition-all text-sm text-left relative"
+                  :class="[
+                    word.selected ? 'bg-primary/10 border-primary text-primary' : 'bg-background border-input hover:bg-accent',
+                    word.status === 'exact' ? 'opacity-50 cursor-not-allowed bg-muted' : '',
+                    word.status === 'similar' && !word.selected ? 'border-yellow-500/50 bg-yellow-500/5' : ''
+                  ]">
+                  <div class="flex items-center gap-2">
+                    <div class="w-4 h-4 rounded-full border flex items-center justify-center shrink-0"
+                      :class="word.selected ? 'border-primary bg-primary text-primary-foreground' : 'border-muted-foreground'">
+                      <Check v-if="word.selected" class="h-3 w-3" />
+                    </div>
+                    <span v-if="word.article" class="text-xs opacity-70 font-mono">{{ word.article }}</span>
+                    <span class="font-medium">{{ word.original }}</span>
+                    <span class="opacity-70 border-l border-current/20 pl-2 ml-1">{{ word.translation }}</span>
                   </div>
-                  <span v-if="word.article" class="text-xs opacity-70 font-mono">{{ word.article }}</span>
-                  <span class="font-medium">{{ word.original }}</span>
-                  <span class="opacity-70 border-l border-current/20 pl-2 ml-1">{{ word.translation }}</span>
+                  
+                  <!-- Status Indicators -->
+                  <div v-if="word.status === 'exact'" class="text-[10px] text-muted-foreground ml-6">
+                    Already exists
+                  </div>
+                  <div v-if="word.status === 'similar'" class="text-[10px] text-yellow-600 dark:text-yellow-400 ml-6">
+                    Similar to "{{ word.similarTo }}"
+                  </div>
                 </button>
               </div>
 

@@ -31,19 +31,19 @@ function isTauri(): boolean {
 export async function initializeDictionary(): Promise<DictionaryInfo | null> {
   try {
     console.log('[Dictionary] Attempting to initialize...');
-    
+
     // Try to invoke the command - if it fails, we're not in Tauri
     const info = await invoke<DictionaryInfo>('ensure_dictionary_db');
     console.log('[Dictionary] Database ready:', info);
-    
+
     // Load the database connection using the absolute path from info
     // Remove the file:// prefix if present and use sqlite: protocol
     const dbPath = info.path.replace('file://', '');
     console.log('[Dictionary] Loading DB from path:', dbPath);
-    
+
     db = await Database.load(`sqlite:${dbPath}`);
     console.log('[Dictionary] Database connection established');
-    
+
     return info;
   } catch (error) {
     // Check if it's a "not in Tauri" error vs actual initialization error
@@ -52,7 +52,7 @@ export async function initializeDictionary(): Promise<DictionaryInfo | null> {
       console.log('[Dictionary] Not running in Tauri, skipping initialization');
       return null;
     }
-    
+
     console.error('[Dictionary] Failed to initialize:', error);
     throw error;
   }
@@ -61,7 +61,7 @@ export async function initializeDictionary(): Promise<DictionaryInfo | null> {
 // Search dictionary for autocomplete suggestions (German word search)
 export async function searchDictionary(query: string, limit: number = 10): Promise<DictionaryEntry[]> {
   console.log('[Dictionary] searchDictionary called:', { query, limit, hasTauri: isTauri(), hasDb: !!db });
-  
+
   if (!isTauri() || !db) {
     console.log('[Dictionary] Search aborted: no Tauri or no DB');
     return [];
@@ -75,7 +75,7 @@ export async function searchDictionary(query: string, limit: number = 10): Promi
   try {
     const searchPattern = `${query.toLowerCase()}%`;
     console.log('[Dictionary] Searching with pattern:', searchPattern);
-    
+
     const results = await db.select<Array<{
       word: string;
       pronunciation: string | null;
@@ -94,7 +94,7 @@ export async function searchDictionary(query: string, limit: number = 10): Promi
     );
 
     console.log('[Dictionary] Query returned', results.length, 'results');
-    
+
     const entries = results.map(row => ({
       word: row.word,
       pronunciation: row.pronunciation || undefined,
@@ -104,12 +104,12 @@ export async function searchDictionary(query: string, limit: number = 10): Promi
       synonyms: JSON.parse(row.synonyms || '[]'),
       seeAlso: JSON.parse(row.seeAlso || '[]'),
     }));
-    
+
     console.log('[Dictionary] Returning', entries.length, 'entries');
     if (entries.length > 0) {
       console.log('[Dictionary] First result:', entries[0].word);
     }
-    
+
     return entries;
   } catch (error) {
     console.error('[Dictionary] Search failed:', error);
@@ -118,7 +118,7 @@ export async function searchDictionary(query: string, limit: number = 10): Promi
 }
 
 // Levenshtein distance for fuzzy string matching
-function levenshteinDistance(a: string, b: string): number {
+export function levenshteinDistance(a: string, b: string): number {
   const matrix: number[][] = [];
 
   for (let i = 0; i <= b.length; i++) {
@@ -149,7 +149,7 @@ function levenshteinDistance(a: string, b: string): number {
 // Search dictionary by English meaning (reverse lookup)
 export async function searchByMeaning(query: string, limit: number = 10): Promise<DictionaryEntry[]> {
   console.log('[Dictionary] searchByMeaning called:', { query, limit, hasTauri: isTauri(), hasDb: !!db });
-  
+
   if (!isTauri() || !db) {
     console.log('[Dictionary] Search aborted: no Tauri or no DB');
     return [];
@@ -163,7 +163,7 @@ export async function searchByMeaning(query: string, limit: number = 10): Promis
   try {
     const searchTerm = query.toLowerCase().trim();
     console.log('[Dictionary] Searching for English phrase:', searchTerm);
-    
+
     // Get 200 results that contain the search term, then fuzzy match in TypeScript
     const results = await db.select<Array<{
       word: string;
@@ -183,28 +183,28 @@ export async function searchByMeaning(query: string, limit: number = 10): Promis
     );
 
     console.log('[Dictionary] Raw query returned', results.length, 'results, fuzzy matching phrases...');
-    
+
     // Parse and score each result using Levenshtein distance on full phrases
     const scoredResults = results.map(row => {
       const meanings = JSON.parse(row.meanings || '[]');
       let bestScore = 999999; // Lower is better for Levenshtein
       let bestMatchType = 'none';
-      
+
       meanings.forEach((meaning: string) => {
         const lowerMeaning = meaning.toLowerCase();
-        
+
         // Split by comma to get distinct phrases
         const phrases = lowerMeaning.split(',').map(p => p.trim()).filter(p => p);
-        
+
         // Check each phrase as a whole
         phrases.forEach((phrase, phraseIndex) => {
           // Calculate distance for the entire phrase
           const distance = levenshteinDistance(searchTerm, phrase);
-          
+
           // Boost score for phrases at earlier positions
           const positionPenalty = phraseIndex * 0.5;
           const finalScore = distance + positionPenalty;
-          
+
           if (finalScore < bestScore) {
             bestScore = finalScore;
             if (distance === 0) bestMatchType = 'exact';
@@ -213,7 +213,7 @@ export async function searchByMeaning(query: string, limit: number = 10): Promis
           }
         });
       });
-      
+
       return {
         word: row.word,
         pronunciation: row.pronunciation || undefined,
@@ -227,20 +227,20 @@ export async function searchByMeaning(query: string, limit: number = 10): Promis
         wordLength: row.word.length
       };
     })
-    .filter(entry => entry.score < 999999) // Only keep entries with matches
-    .sort((a, b) => {
-      // Sort by score first (lower is better), then by word length
-      if (a.score !== b.score) return a.score - b.score;
-      return a.wordLength - b.wordLength;
-    })
-    .slice(0, limit)
-    .map(({ score, matchType, wordLength, ...entry }) => entry); // Remove score/matchType/wordLength from final results
-    
+      .filter(entry => entry.score < 999999) // Only keep entries with matches
+      .sort((a, b) => {
+        // Sort by score first (lower is better), then by word length
+        if (a.score !== b.score) return a.score - b.score;
+        return a.wordLength - b.wordLength;
+      })
+      .slice(0, limit)
+      .map(({ score, matchType, wordLength, ...entry }) => entry); // Remove score/matchType/wordLength from final results
+
     console.log('[Dictionary] Returning', scoredResults.length, 'best phrase matches');
     if (scoredResults.length > 0) {
       console.log('[Dictionary] First result:', scoredResults[0].word, 'Meanings:', scoredResults[0].meanings);
     }
-    
+
     return scoredResults;
   } catch (error) {
     console.error('[Dictionary] Meaning search failed:', error);
