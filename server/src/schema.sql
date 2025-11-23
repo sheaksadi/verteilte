@@ -24,4 +24,4 @@ CREATE TABLE IF NOT EXISTS words (
 
 CREATE INDEX IF NOT EXISTS idx_words_user_id ON words(user_id);
 CREATE INDEX IF NOT EXISTS idx_words_updated_at ON words(updated_at);
-CREATE INDEX IF NOT EXISTS idx_words_language ON words(language);
+

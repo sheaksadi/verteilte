@@ -26,8 +26,10 @@ export const migrate = async () => {
         } catch (e) {
             console.log('Adding language column to words table...');
             await query("ALTER TABLE words ADD COLUMN language VARCHAR(10) NOT NULL DEFAULT 'de'");
-            await query("CREATE INDEX IF NOT EXISTS idx_words_language ON words(language)");
         }
+
+        // Always ensure index exists
+        await query("CREATE INDEX IF NOT EXISTS idx_words_language ON words(language)");
 
         console.log('Migration successful');
     } catch (error) {
