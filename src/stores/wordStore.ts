@@ -10,6 +10,7 @@ export const useWordStore = defineStore('words', () => {
     // State
     const words = ref<Word[]>([]);
     const searchQuery = ref('');
+    const capturedImage = ref<string | null>(null);
     const isLoading = ref(true);
     const dictionaryInfo = ref<DictionaryInfo | null>(null);
     const debugInfo = ref({
@@ -374,6 +375,7 @@ export const useWordStore = defineStore('words', () => {
         loadSettings,
         checkConnection,
         pingServer,
-        pingGoogle
+        pingGoogle,
+        capturedImage
     };
 });

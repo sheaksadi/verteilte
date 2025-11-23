@@ -1,36 +1,43 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { Card, CardContent } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Plus, Play, Check, Home, BookOpen, Sparkles, Settings as SettingsIcon } from 'lucide-vue-next';
+import { onMounted } from 'vue';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
-import FlashcardView from '@/components/FlashcardView.vue';
-import WordManager from '@/components/WordManager.vue';
 import ImportDialog from '@/components/ImportDialog.vue';
 import Auth from '@/components/Auth.vue';
-import DebugInfo from '@/components/DebugInfo.vue';
-import Settings from '@/components/Settings.vue';
-import AIWordAdder from '@/components/AIWordAdder.vue';
+import NavBar from '@/components/NavBar.vue';
 
 const store = useWordStore();
-const { words, dueWords, isLoading, debugInfo, isLoggedIn } = storeToRefs(store);
+const { isLoading, debugInfo } = storeToRefs(store);
 
-type View = 'home' | 'words' | 'ai-add' | 'settings';
-const currentView = ref<View>('home');
+// Global dialog states could be moved to a UI store, but for now we can keep them here 
+// or trigger them via events/bus. 
+// However, since Settings is now a route, it can handle its own dialogs or use a global store.
+// The ImportDialog was triggered from WordManager and Settings.
+// Let's use a simple event bus or store for global dialogs if needed.
+// For now, let's assume components handle their own dialogs or we pass props?
+// Router views don't easily accept props from App.vue without setup.
+// I'll leave ImportDialog here and maybe expose a provide/inject or use a store.
+// Actually, `WordManager` and `Settings` emitted `open-import-dialog`.
+// I'll use a simple global state for this dialog since it's used in multiple places.
+// Or better, I'll move `ImportDialog` into the views that need it, or make it a global component controlled by store.
+// Let's add `showImportDialog` to `wordStore` for simplicity as it relates to words.
 
-const showImportDialog = ref(false);
-const showAuthDialog = ref(false);
-const showDebug = ref(false);
-const cardHeight = ref(25);
+const showAuthDialog = ref(false); // This is triggered by sync if not logged in.
 
-const openImportDialog = () => {
-  showImportDialog.value = true;
-};
+// We need to listen to store for auth requests if we want to show dialog globally.
+// The store currently just sets `showAuthDialog.value = true` in the old App.vue logic.
+// But store doesn't have access to `showAuthDialog` ref.
+// In the old App.vue: `handleSyncClick` checked `isLoggedIn`.
+// I'll add a watcher or just let the views handle auth triggers.
+// But `NavBar` has a sync status? No, `NavBar` just links.
+// `Settings` has the sync button.
+// So `Settings` can import `Auth` component directly.
+// `App.vue` doesn't need to handle Auth dialog anymore if it's only triggered from Settings.
+// Wait, `WordManager` also had sync? No, only `App.vue` top bar had sync.
+// So `Settings` view now owns Sync.
+// So I can remove Auth/Import dialogs from App.vue and move them to Settings/WordManager.
 
-const toggleDebug = () => {
-  showDebug.value = !showDebug.value;
-};
+import { ref } from 'vue';
 
 onMounted(async () => {
   // Detect platform
@@ -55,117 +62,45 @@ onMounted(async () => {
 </script>
 
 <template>
-  <main class="min-h-screen bg-background flex flex-col transition-colors duration-300 relative pb-24">
+  <main class="h-dvh w-screen bg-background flex flex-col overflow-hidden relative">
     
     <!-- Content Area -->
-    <div class="flex-1 p-4 overflow-y-auto">
+    <!-- flex-1 to take available space, overflow-hidden to prevent body scroll -->
+    <!-- The router-view container will handle scrolling -->
+    <div class="flex-1 relative w-full overflow-hidden flex flex-col">
       <!-- Loading state -->
-      <div v-if="isLoading" class="flex items-center justify-center min-h-[50vh]">
+      <div v-if="isLoading" class="absolute inset-0 flex items-center justify-center bg-background z-50">
         <div class="text-center">
           <div class="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
           <p class="text-muted-foreground">Loading...</p>
         </div>
       </div>
 
-      <div v-else>
-        <!-- Home / Practice View -->
-        <div v-if="currentView === 'home'">
-          <!-- No words message -->
-          <div v-if="words.length === 0" class="text-center max-w-md mx-auto mt-20">
-            <Card>
-              <CardContent class="p-8">
-                <h2 class="text-xl font-semibold mb-3">No words yet!</h2>
-                <p class="text-muted-foreground mb-4">Add some words to start practicing.</p>
-                <Button @click="currentView = 'words'" class="dark:bg-purple-500 dark:hover:bg-purple-600">
-                  <Plus class="h-4 w-4 mr-2" /> Add Words
-                </Button>
-              </CardContent>
-            </Card>
-          </div>
-
-          <!-- No cards due message -->
-          <div v-else-if="dueWords.length === 0" class="text-center max-w-md mx-auto w-full mt-20">
-            <Card class="border-none shadow-lg overflow-hidden">
-              <div class="bg-gradient-to-br from-primary/5 to-purple-500/5 p-8 flex flex-col items-center">
-                <div class="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-6">
-                  <Check class="w-8 h-8 text-primary" />
-                </div>
-                
-                <h2 class="text-2xl font-bold mb-2 text-primary">
-                  All Caught Up!
-                </h2>
-                <p class="text-muted-foreground mb-8 max-w-xs mx-auto">
-                  You've reviewed all your due cards. Great job keeping up with your streak!
-                </p>
-                
-                <div class="flex flex-col gap-3 w-full max-w-xs">
-                  <Button @click="store.startKeepGoingMode()" class="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.02]">
-                    <Play class="h-4 w-4 mr-2 fill-current" /> Keep Going (Review Next 5)
-                  </Button>
-                  
-                  <Button @click="currentView = 'words'" variant="outline" class="w-full border-primary/20 hover:bg-primary/5">
-                    <Plus class="h-4 w-4 mr-2" /> Add More Words
-                  </Button>
-                </div>
-              </div>
-            </Card>
-          </div>
-
-          <!-- Flashcard content -->
-          <FlashcardView v-else 
-            :isDarkMode="true"
-            :cardHeight="cardHeight"
-          />
-          
-          <DebugInfo v-if="showDebug" v-model:cardHeight="cardHeight" />
-        </div>
-
-        <!-- Words View -->
-        <WordManager v-else-if="currentView === 'words'" @open-import-dialog="openImportDialog" @close="currentView = 'home'" />
-
-        <!-- AI Add View -->
-        <AIWordAdder v-else-if="currentView === 'ai-add'" />
-
-        <!-- Settings View -->
-        <Settings v-else-if="currentView === 'settings'" @open-import="openImportDialog" @toggle-debug="toggleDebug" />
-      </div>
+      <!-- Router View -->
+      <router-view v-slot="{ Component }">
+        <transition name="fade" mode="out-in">
+          <!-- Remove pb-24 since NavBar is not fixed anymore -->
+          <component :is="Component" class="h-full w-full overflow-y-auto p-4" />
+        </transition>
+      </router-view>
     </div>
 
-    <!-- Bottom Navigation Bar -->
-    <div class="fixed bottom-0 left-0 right-0 bg-background/80 backdrop-blur-md border-t p-2 z-50">
-      <div class="max-w-md mx-auto flex justify-around items-center">
-        <button @click="currentView = 'home'" 
-          class="flex flex-col items-center gap-1 p-2 rounded-lg transition-colors"
-          :class="currentView === 'home' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'">
-          <Home class="h-6 w-6" />
-          <span class="text-[10px] font-medium">Practice</span>
-        </button>
-        
-        <button @click="currentView = 'words'" 
-          class="flex flex-col items-center gap-1 p-2 rounded-lg transition-colors"
-          :class="currentView === 'words' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'">
-          <BookOpen class="h-6 w-6" />
-          <span class="text-[10px] font-medium">Words</span>
-        </button>
+    <!-- Navigation Bar -->
+    <!-- It is now a flex item, so it will sit at the bottom -->
+    <NavBar />
 
-        <button @click="currentView = 'ai-add'" 
-          class="flex flex-col items-center gap-1 p-2 rounded-lg transition-colors"
-          :class="currentView === 'ai-add' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'">
-          <Sparkles class="h-6 w-6" />
-          <span class="text-[10px] font-medium">AI Add</span>
-        </button>
-
-        <button @click="currentView = 'settings'" 
-          class="flex flex-col items-center gap-1 p-2 rounded-lg transition-colors"
-          :class="currentView === 'settings' ? 'text-primary' : 'text-muted-foreground hover:text-foreground'">
-          <SettingsIcon class="h-6 w-6" />
-          <span class="text-[10px] font-medium">Settings</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- Dialogs -->
-    <ImportDialog v-if="showImportDialog" @close="showImportDialog = false" />
-    <Auth v-if="showAuthDialog" @close="showAuthDialog = false" />
   </main>
 </template>
+
+<style>
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+</style>
+

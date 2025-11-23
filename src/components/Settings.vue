@@ -11,11 +11,16 @@ import { storeToRefs } from 'pinia';
 import { Moon, Sun, Save, RotateCcw, Download, Upload, RefreshCw, LogOut, Trash2, Key, Database, Brain, Palette, Bug } from 'lucide-vue-next';
 import type { AlgorithmSettings } from '@/lib/database';
 import { DEFAULT_ALGORITHM_SETTINGS } from '@/lib/database';
+import ImportDialog from '@/components/ImportDialog.vue';
+import Auth from '@/components/Auth.vue';
 
-const emit = defineEmits(['close', 'open-import', 'toggle-debug']);
+const emit = defineEmits(['close', 'toggle-debug']);
 
 const store = useWordStore();
 const { algorithmSettings, isLoggedIn, user, isSyncing, debugInfo } = storeToRefs(store);
+
+const showImportDialog = ref(false);
+const showAuthDialog = ref(false);
 
 // --- Appearance ---
 const isDarkMode = ref(document.documentElement.classList.contains('dark'));
@@ -212,7 +217,7 @@ onMounted(() => {
               </div>
             </div>
             <Button v-if="isLoggedIn" variant="outline" size="sm" @click="store.sync()">Sync Now</Button>
-            <Button v-else variant="outline" size="sm" @click="store.login('test', 'test')">Login</Button> <!-- Placeholder login, ideally opens Auth dialog -->
+            <Button v-else variant="outline" size="sm" @click="showAuthDialog = true">Login</Button>
           </div>
 
           <!-- Import/Export -->
@@ -221,7 +226,7 @@ onMounted(() => {
               <Download class="h-5 w-5" />
               <span>Export to Clipboard</span>
             </Button>
-            <Button variant="outline" class="h-auto py-4 flex flex-col gap-2" @click="emit('open-import')">
+            <Button variant="outline" class="h-auto py-4 flex flex-col gap-2" @click="showImportDialog = true">
               <Upload class="h-5 w-5" />
               <span>Import Words</span>
             </Button>
@@ -316,5 +321,8 @@ onMounted(() => {
         </CardContent>
     </Card>
 
+    <!-- Dialogs -->
+    <ImportDialog v-if="showImportDialog" @close="showImportDialog = false" />
+    <Auth v-if="showAuthDialog" @close="showAuthDialog = false" />
   </div>
 </template>

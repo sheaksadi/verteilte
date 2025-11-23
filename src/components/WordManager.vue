@@ -1,129 +1,92 @@
 <script setup lang="ts">
-import { ref, nextTick } from 'vue';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Card, CardContent } from '@/components/ui/card';
-import { Plus, Search, Trash2, Copy, Check, ArrowLeft } from 'lucide-vue-next';
+import { ref } from 'vue';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
-import { searchDictionary, searchByMeaning, type DictionaryEntry } from '@/lib/dictionary';
-
-const emit = defineEmits<{
-  (e: 'close'): void;
-  (e: 'open-import-dialog'): void;
-}>();
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Search, Plus, Trash2, Volume2, Upload } from 'lucide-vue-next';
+import { searchDictionary } from '@/lib/dictionary';
+import ImportDialog from '@/components/ImportDialog.vue';
 
 const store = useWordStore();
-const { words, filteredWords, searchQuery, dictionaryInfo } = storeToRefs(store);
+const { filteredWords, searchQuery } = storeToRefs(store);
 
-const exportSuccess = ref(false);
+// Local state for new word form
+const newOriginal = ref('');
+const newTranslation = ref('');
+const newArticle = ref('');
+const isAdding = ref(false);
+const showImportDialog = ref(false);
 
-const handleExport = async () => {
-  try {
-    const text = words.value.map(w => `${w.original} | ${w.translation} | ${w.article || ''}`).join('\n');
-    await navigator.clipboard.writeText(text);
-    exportSuccess.value = true;
-    setTimeout(() => exportSuccess.value = false, 3000);
-  } catch (err) {
-    console.error('Failed to export:', err);
-  }
-};
+// Dictionary suggestions
+const suggestions = ref<any[]>([]);
+const isSearchingDict = ref(false);
 
-const newWordOriginal = ref('');
-const newWordTranslation = ref('');
-const newWordArticle = ref('');
-const suggestions = ref<DictionaryEntry[]>([]);
-const showSuggestions = ref(false);
-const translationSuggestions = ref<DictionaryEntry[]>([]);
-const showTranslationSuggestions = ref(false);
-
-const updateSuggestions = async () => {
-  const searchTerm = newWordOriginal.value.trim();
-  if (searchTerm.length >= 2 && dictionaryInfo.value) {
-    const results = await searchDictionary(searchTerm, 10);
-    suggestions.value = results;
-    showSuggestions.value = results.length > 0;
-  } else {
+const handleSearchInput = async () => {
+  if (!newOriginal.value || newOriginal.value.length < 2) {
     suggestions.value = [];
-    showSuggestions.value = false;
+    return;
+  }
+
+  isSearchingDict.value = true;
+  try {
+    // Search German -> English
+    const results = await searchDictionary(newOriginal.value);
+    suggestions.value = results.slice(0, 5);
+  } catch (e) {
+    console.error(e);
+  } finally {
+    isSearchingDict.value = false;
   }
 };
 
-const updateTranslationSuggestions = async () => {
-  const searchTerm = newWordTranslation.value.trim();
-  if (searchTerm.length >= 2 && dictionaryInfo.value) {
-    const results = await searchByMeaning(searchTerm, 10);
-    translationSuggestions.value = results;
-    showTranslationSuggestions.value = results.length > 0;
-  } else {
-    translationSuggestions.value = [];
-    showTranslationSuggestions.value = false;
+const selectSuggestion = (s: any) => {
+  newOriginal.value = s.word;
+  newTranslation.value = s.meanings.join(', ');
+  if (s.gender) {
+    newArticle.value = s.gender === 'masc' ? 'der' :
+                       s.gender === 'fem' ? 'die' :
+                       s.gender === 'neut' ? 'das' : '';
   }
-};
-
-const selectSuggestion = (suggestion: DictionaryEntry) => {
-  newWordOriginal.value = suggestion.word;
-  newWordTranslation.value = suggestion.meanings?.[0] || '';
-  newWordArticle.value = suggestion.gender === 'masc' ? 'der' :
-    suggestion.gender === 'fem' ? 'die' :
-      suggestion.gender === 'neut' ? 'das' : '';
-  showSuggestions.value = false;
-  showTranslationSuggestions.value = false;
-};
-
-const selectTranslationSuggestion = (suggestion: DictionaryEntry) => {
-  newWordOriginal.value = suggestion.word;
-  newWordTranslation.value = suggestion.meanings?.[0] || '';
-  newWordArticle.value = suggestion.gender === 'masc' ? 'der' :
-    suggestion.gender === 'fem' ? 'die' :
-      suggestion.gender === 'neut' ? 'das' : '';
-  showSuggestions.value = false;
-  showTranslationSuggestions.value = false;
-};
-
-const focusTranslation = () => {
-  const translationInput = document.getElementById('newWordTranslation') as HTMLInputElement;
-  if (translationInput) translationInput.focus();
-};
-
-const focusArticle = () => {
-  const articleInput = document.getElementById('newWordArticle') as HTMLInputElement;
-  if (articleInput) articleInput.focus();
-};
-
-const delayHideSuggestions = () => {
-  setTimeout(() => {
-    showSuggestions.value = false;
-    showTranslationSuggestions.value = false;
-  }, 200);
+  suggestions.value = [];
 };
 
 const addWord = async () => {
-  if (newWordOriginal.value.trim() && newWordTranslation.value.trim()) {
-    await store.addWord(
-      newWordOriginal.value.trim(),
-      newWordTranslation.value.trim(),
-      newWordArticle.value.trim()
-    );
+  if (!newOriginal.value || !newTranslation.value) return;
 
-    newWordOriginal.value = '';
-    newWordTranslation.value = '';
-    newWordArticle.value = '';
-    showSuggestions.value = false;
+  await store.addWord(newOriginal.value, newTranslation.value, newArticle.value);
+  
+  // Reset form
+  newOriginal.value = '';
+  newTranslation.value = '';
+  newArticle.value = '';
+  isAdding.value = false;
+};
 
-    // Focus back on original input for quick entry
-    nextTick(() => {
-      const originalInput = document.getElementById('newWordOriginal') as HTMLInputElement;
-      if (originalInput) originalInput.focus();
-    });
+const deleteWord = async (id: string) => {
+  if (confirm('Are you sure you want to delete this word?')) {
+    await store.deleteWord(id);
   }
 };
 
-const deleteWord = async (word: any) => {
-    if (word.id) {
-        await store.deleteWord(word.id);
-    }
-  };
+const speak = (text: string) => {
+  const utterance = new SpeechSynthesisUtterance(text);
+  utterance.lang = 'de-DE';
+  window.speechSynthesis.speak(utterance);
+};
+
+// Helper to get article color
+const getArticleColor = (article: string) => {
+  switch (article.toLowerCase()) {
+    case 'der': return 'bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100';
+    case 'die': return 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100';
+    case 'das': return 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100';
+    default: return 'bg-gray-100 text-gray-800 dark:bg-gray-800 dark:text-gray-100';
+  }
+};
 
 const formatNextDue = (timestamp: number): string => {
   const now = Date.now();
@@ -143,157 +106,119 @@ const formatNextDue = (timestamp: number): string => {
 </script>
 
 <template>
-  <div class="max-w-4xl mx-auto w-full pb-20">
-    <div class="flex items-center justify-between mb-8">
+  <div class="max-w-4xl mx-auto w-full pb-20 space-y-6">
+    <!-- Header -->
+    <div class="flex items-center justify-between">
       <div>
-        <h1 class="text-3xl font-bold text-primary tracking-tight">Manage Words</h1>
-        <p class="text-muted-foreground mt-1">Add, edit, and review your vocabulary collection</p>
+        <h1 class="text-3xl font-bold text-primary tracking-tight">My Words</h1>
+        <p class="text-muted-foreground mt-1">Manage your vocabulary collection</p>
       </div>
       <div class="flex gap-2">
-        <Button variant="outline" size="icon" @click="handleExport" class="rounded-full h-10 w-10 bg-background hover:bg-accent"
-          :title="exportSuccess ? 'Copied to clipboard!' : 'Export words to clipboard'">
-          <Check v-if="exportSuccess" class="h-5 w-5 text-green-600" />
-          <Copy v-else class="h-5 w-5" />
+        <Button variant="outline" size="icon" @click="showImportDialog = true">
+          <Upload class="h-4 w-4" />
+        </Button>
+        <Button @click="isAdding = !isAdding">
+          <Plus class="h-4 w-4 mr-2" /> Add Word
         </Button>
       </div>
     </div>
 
-    <!-- Quick Add Form -->
-    <Card class="mb-8 border-primary/10 shadow-md overflow-hidden">
-      <div class="bg-primary/5 p-4 border-b border-primary/10">
-        <h2 class="font-semibold flex items-center gap-2 text-primary">
-          <Plus class="h-4 w-4" /> Add New Word
-        </h2>
-      </div>
-      <CardContent class="p-6">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-          <!-- Original Word Input -->
-          <div class="md:col-span-5 relative">
-            <label class="text-xs font-medium text-muted-foreground mb-1.5 block ml-1">Original Word</label>
-            <div class="relative">
-              <Input id="newWordOriginal" v-model="newWordOriginal" placeholder="e.g., Haus"
-                @input="updateSuggestions" @keyup.enter="focusTranslation" @blur="delayHideSuggestions"
-                @focus="updateSuggestions" class="text-base h-11 bg-background/50 focus:bg-background transition-colors" />
-              <!-- Suggestions Dropdown -->
-              <div v-if="showSuggestions && suggestions.length > 0"
-                class="absolute z-20 w-full mt-1 bg-popover border rounded-md shadow-xl max-h-60 overflow-y-auto">
-                <button v-for="(suggestion, idx) in suggestions" :key="idx"
-                  @mousedown.prevent="selectSuggestion(suggestion)"
-                  class="w-full px-3 py-2.5 text-left hover:bg-accent transition-colors border-b last:border-b-0">
-                  <div class="font-semibold text-sm">
-                    <span v-if="suggestion.gender" class="text-xs text-muted-foreground mr-1 uppercase tracking-wider font-mono bg-muted px-1 rounded">
-                      {{ suggestion.gender === 'masc' ? 'der' : suggestion.gender === 'fem' ? 'die' : suggestion.gender === 'neut' ? 'das' : '' }}
+    <!-- Add Word Form -->
+    <Card v-if="isAdding" class="animate-in slide-in-from-top-4 duration-300">
+      <CardHeader>
+        <CardTitle>Add New Word</CardTitle>
+      </CardHeader>
+      <CardContent class="space-y-4">
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div class="space-y-2 relative">
+            <Input v-model="newOriginal" placeholder="German Word" @input="handleSearchInput" />
+            <!-- Suggestions -->
+            <div v-if="suggestions.length > 0" class="absolute z-10 w-full bg-popover border rounded-md shadow-md mt-1 overflow-hidden">
+              <div v-for="s in suggestions" :key="s.word" 
+                   class="p-2 hover:bg-accent cursor-pointer text-sm"
+                   @click="selectSuggestion(s)">
+                <div class="font-medium">
+                   <span v-if="s.gender" class="text-xs text-muted-foreground mr-1 uppercase tracking-wider font-mono bg-muted px-1 rounded">
+                      {{ s.gender === 'masc' ? 'der' : s.gender === 'fem' ? 'die' : s.gender === 'neut' ? 'das' : '' }}
                     </span>
-                    {{ suggestion.word }}
-                  </div>
-                  <div class="text-xs text-muted-foreground truncate mt-0.5">
-                    {{ suggestion.meanings?.[0] || 'No translation' }}
-                  </div>
-                </button>
+                    {{ s.word }}
+                </div>
+                <div class="text-xs text-muted-foreground">{{ s.meanings.join(', ') }}</div>
               </div>
             </div>
           </div>
-
-          <!-- Translation Input -->
-          <div class="md:col-span-5 relative">
-            <label class="text-xs font-medium text-muted-foreground mb-1.5 block ml-1">Translation</label>
-            <div class="relative">
-              <Input id="newWordTranslation" v-model="newWordTranslation"
-                placeholder="e.g., House" @input="updateTranslationSuggestions"
-                @keyup.enter="focusArticle" @blur="delayHideSuggestions" @focus="updateTranslationSuggestions"
-                class="text-base h-11 bg-background/50 focus:bg-background transition-colors" />
-              <!-- Translation Suggestions Dropdown -->
-              <div v-if="showTranslationSuggestions && translationSuggestions.length > 0"
-                class="absolute z-20 w-full mt-1 bg-popover border rounded-md shadow-xl max-h-60 overflow-y-auto">
-                <button v-for="(suggestion, idx) in translationSuggestions" :key="idx"
-                  @mousedown.prevent="selectTranslationSuggestion(suggestion)"
-                  class="w-full px-3 py-2.5 text-left hover:bg-accent transition-colors border-b last:border-b-0">
-                  <div class="font-semibold text-sm">
-                    <span v-if="suggestion.gender" class="text-xs text-muted-foreground mr-1 uppercase tracking-wider font-mono bg-muted px-1 rounded">
-                      {{ suggestion.gender === 'masc' ? 'der' : suggestion.gender === 'fem' ? 'die' : suggestion.gender === 'neut' ? 'das' : '' }}
-                    </span>
-                    {{ suggestion.word }}
-                  </div>
-                  <div class="text-xs text-muted-foreground truncate mt-0.5">
-                    {{ suggestion.meanings?.[0] || 'No translation' }}
-                  </div>
-                </button>
-              </div>
-            </div>
+          <div class="space-y-2">
+            <Input v-model="newTranslation" placeholder="Translation" />
           </div>
-
-          <!-- Article Input -->
-          <div class="md:col-span-2">
-            <label class="text-xs font-medium text-muted-foreground mb-1.5 block ml-1">Article</label>
-            <Input id="newWordArticle" v-model="newWordArticle" placeholder="der/die/das"
-              @keyup.enter="addWord()" class="text-base h-11 bg-background/50 focus:bg-background transition-colors text-center" />
+          <div class="space-y-2">
+            <Select v-model="newArticle">
+              <SelectTrigger>
+                <SelectValue placeholder="Article" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="der">Der (Masc)</SelectItem>
+                <SelectItem value="die">Die (Fem)</SelectItem>
+                <SelectItem value="das">Das (Neut)</SelectItem>
+                <SelectItem value="">None</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
         </div>
-        
-        <div class="mt-4 flex justify-end">
-          <Button @click="addWord" :disabled="!newWordOriginal.trim() || !newWordTranslation.trim()"
-            class="w-full md:w-auto min-w-[150px] h-11 dark:bg-purple-600 dark:hover:bg-purple-700 shadow-sm">
-            <Plus class="h-4 w-4 mr-2" /> Add to Collection
-          </Button>
+        <div class="flex justify-end gap-2">
+          <Button variant="ghost" @click="isAdding = false">Cancel</Button>
+          <Button @click="addWord" :disabled="!newOriginal || !newTranslation">Save Word</Button>
         </div>
       </CardContent>
     </Card>
 
-    <!-- Search and Stats -->
-    <div class="flex flex-col md:flex-row items-center justify-between gap-4 mb-6">
-      <div class="relative w-full md:w-96">
-        <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-        <Input v-model="searchQuery" placeholder="Search your words..." class="pl-9 bg-background/50" />
+    <!-- Search & List -->
+    <div class="space-y-4">
+      <div class="relative">
+        <Search class="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+        <Input v-model="searchQuery" placeholder="Search words..." class="pl-9" />
       </div>
-      <div class="text-sm text-muted-foreground font-medium px-3 py-1.5 bg-muted/50 rounded-full">
-        {{ filteredWords.length }} word{{ filteredWords.length !== 1 ? 's' : '' }} found
-      </div>
-    </div>
 
-    <!-- Words List -->
-    <div class="bg-card rounded-lg border shadow-sm overflow-hidden">
-      <div class="divide-y divide-border">
-        <div v-for="(word, index) in filteredWords" :key="index" 
-          class="group p-4 flex items-center justify-between hover:bg-muted/30 transition-colors">
-          <div class="flex-1 min-w-0 mr-4">
-            <div class="font-bold text-base flex items-baseline gap-2 truncate">
-              <span v-if="word.article" class="text-xs font-normal text-muted-foreground italic bg-muted/50 px-1.5 py-0.5 rounded shrink-0">{{ word.article }}</span>
-              <span class="text-foreground truncate">{{ word.original }}</span>
-            </div>
-            <div class="text-sm text-muted-foreground mt-0.5 truncate">{{ word.translation }}</div>
-          </div>
-          
-          <div class="flex items-center gap-4 shrink-0">
-            <div class="flex flex-col items-end gap-0.5">
-              <div class="text-xs font-medium" 
-                :class="{ 'text-red-600 dark:text-red-400': word.nextReviewAt <= Date.now(), 'text-muted-foreground': word.nextReviewAt > Date.now() }">
-                {{ formatNextDue(word.nextReviewAt) }}
-              </div>
-              <div class="text-xs text-muted-foreground">
-                Score: {{ word.score }}
+      <div class="grid gap-3">
+        <Card v-for="word in filteredWords" :key="word.id" class="group hover:shadow-md transition-all">
+          <CardContent class="p-4 flex items-center justify-between">
+            <div class="flex items-center gap-4">
+              <div class="flex flex-col">
+                <div class="flex items-center gap-2">
+                  <Badge v-if="word.article" variant="secondary" :class="getArticleColor(word.article)">
+                    {{ word.article }}
+                  </Badge>
+                  <span class="font-semibold text-lg">{{ word.original }}</span>
+                  <Button variant="ghost" size="icon" class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" @click="speak(word.original)">
+                    <Volume2 class="h-3 w-3" />
+                  </Button>
+                </div>
+                <span class="text-muted-foreground">{{ word.translation }}</span>
               </div>
             </div>
+            
+            <div class="flex items-center gap-4">
+               <div class="flex flex-col items-end gap-0.5">
+                  <div class="text-xs font-medium" 
+                    :class="{ 'text-red-600 dark:text-red-400': word.nextReviewAt <= Date.now(), 'text-muted-foreground': word.nextReviewAt > Date.now() }">
+                    {{ formatNextDue(word.nextReviewAt) }}
+                  </div>
+                  <div class="text-xs text-muted-foreground">
+                    Lvl {{ word.score }}
+                  </div>
+                </div>
+              <Button variant="ghost" size="icon" class="text-destructive hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all" @click="deleteWord(word.id)">
+                <Trash2 class="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
 
-            <Button variant="ghost" size="icon" @click="deleteWord(word)"
-              class="h-8 w-8 text-muted-foreground hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all">
-              <Trash2 class="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-      
-      <!-- Empty State -->
-      <div v-if="filteredWords.length === 0" class="p-8 text-center text-muted-foreground">
-        <div v-if="searchQuery" class="flex flex-col items-center">
-          <Search class="h-12 w-12 mb-3 opacity-20" />
-          <p>No words found matching "{{ searchQuery }}"</p>
-          <Button variant="link" @click="searchQuery = ''" class="mt-2">Clear search</Button>
-        </div>
-        <div v-else class="flex flex-col items-center">
-          <p>No words yet. Add your first word above!</p>
+        <div v-if="filteredWords.length === 0" class="text-center py-12 text-muted-foreground">
+          No words found.
         </div>
       </div>
     </div>
 
+    <ImportDialog v-if="showImportDialog" @close="showImportDialog = false" />
   </div>
 </template>

@@ -5,15 +5,15 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Camera, Image as ImageIcon, Sparkles, Check, X, Plus, Loader2 } from 'lucide-vue-next';
 import { GoogleGenAI } from "@google/genai";
+import { useRouter } from 'vue-router';
 import { useWordStore } from '@/stores/wordStore';
 import { searchDictionary, levenshteinDistance } from '@/lib/dictionary';
-import CameraCapture from './CameraCapture.vue';
 
+const router = useRouter();
 const store = useWordStore();
 
 const imagePreview = ref<string | null>(null);
 const fileInput = ref<HTMLInputElement | null>(null);
-const showCamera = ref(false);
 const isAnalyzing = ref(false);
 const apiKey = localStorage.getItem('gemini_api_key') || '';
 
@@ -27,14 +27,27 @@ const detectedWords = ref<Array<{
 }>>([]);
 
 const triggerCamera = () => {
-  showCamera.value = true;
+  router.push('/camera');
 };
 
-const handleCameraCapture = (imageData: string) => {
-  imagePreview.value = imageData;
-  showCamera.value = false;
-  analyzeImage();
+// Check for captured image from store on mount
+import { onActivated, onMounted } from 'vue';
+
+const checkCapturedImage = () => {
+  if (store.capturedImage) {
+    imagePreview.value = store.capturedImage;
+    store.capturedImage = null; // Clear it
+    analyzeImage();
+  }
 };
+
+onMounted(() => {
+  checkCapturedImage();
+});
+
+onActivated(() => {
+  checkCapturedImage();
+});
 
 const triggerGallery = () => {
   fileInput.value?.click();
@@ -292,6 +305,5 @@ const addSelectedWords = async () => {
 
     <!-- Hidden inputs -->
     <input type="file" ref="fileInput" accept="image/*" class="hidden" @change="handleImageUpload" />
-    <CameraCapture v-if="showCamera" @capture="handleCameraCapture" @close="showCamera = false" />
   </div>
 </template>
