@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
-import { ref, computed } from 'vue';
-import { useNow } from '@vueuse/core';
+import { ref, computed, watch } from 'vue';
+import { useNow, useStorage } from '@vueuse/core';
 import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
 
@@ -12,7 +12,7 @@ export const useWordStore = defineStore('words', () => {
     const searchQuery = ref('');
     const capturedImage = ref<string | null>(null);
     const aiStrategy = ref<'all' | 'important' | 'no-common'>('important');
-    const currentLanguage = ref<string>(localStorage.getItem('currentLanguage') || 'de');
+    const currentLanguage = useStorage('currentLanguage', 'de');
     const isLoading = ref(true);
     const dictionaryInfo = ref<DictionaryInfo | null>(null);
     const debugInfo = ref({
@@ -31,12 +31,27 @@ export const useWordStore = defineStore('words', () => {
 
     // Auth State
     const user = ref<{ id: string; username: string } | null>(null);
-    const token = ref<string | null>(localStorage.getItem('token'));
-    const lastSyncTimestamp = ref<number>(parseInt(localStorage.getItem('lastSyncTimestamp') || '0'));
+    const token = useStorage('token', null);
+    const lastSyncTimestamp = useStorage('lastSyncTimestamp', 0);
     const isSyncing = ref(false);
 
     // Config State
-    const apiUrl = ref<string>(localStorage.getItem('apiUrl') || API_URL);
+    const apiUrl = useStorage('apiUrl', API_URL, localStorage);
+
+    // Manual persistence for autoPlayAudio to ensure reliability
+    const initialAutoPlay = localStorage.getItem('settings_autoPlayAudio');
+    console.log('[Store] Initializing autoPlayAudio. LocalStorage value:', initialAutoPlay);
+    const autoPlayAudio = ref(initialAutoPlay === 'true');
+
+    watch(autoPlayAudio, (newValue) => {
+        console.log('[Store] Watcher: autoPlayAudio changed to:', newValue);
+        localStorage.setItem('settings_autoPlayAudio', String(newValue));
+    });
+
+    const setAutoPlayAudio = (value: boolean) => {
+        console.log('[Store] Action: setAutoPlayAudio called with:', value);
+        autoPlayAudio.value = value;
+    };
 
     // Getters
     const filteredWords = computed(() => {
@@ -64,7 +79,6 @@ export const useWordStore = defineStore('words', () => {
         // Remove trailing slash if present
         const cleanUrl = url.replace(/\/$/, '');
         apiUrl.value = cleanUrl;
-        localStorage.setItem('apiUrl', cleanUrl);
     };
 
     const loadWords = async () => {
@@ -307,7 +321,6 @@ export const useWordStore = defineStore('words', () => {
     const setLanguage = async (lang: string) => {
         if (currentLanguage.value === lang) return;
         currentLanguage.value = lang;
-        localStorage.setItem('currentLanguage', lang);
         await loadWords();
         await initDictionary();
     };
@@ -326,7 +339,6 @@ export const useWordStore = defineStore('words', () => {
             const data = await res.json();
             token.value = data.token;
             user.value = data.user;
-            localStorage.setItem('token', data.token);
 
             await sync();
             return { success: true };
@@ -349,7 +361,6 @@ export const useWordStore = defineStore('words', () => {
             const data = await res.json();
             token.value = data.token;
             user.value = data.user;
-            localStorage.setItem('token', data.token);
 
             await sync();
             return { success: true };
@@ -362,8 +373,6 @@ export const useWordStore = defineStore('words', () => {
     const logout = () => {
         token.value = null;
         user.value = null;
-        localStorage.removeItem('token');
-        localStorage.removeItem('lastSyncTimestamp');
         lastSyncTimestamp.value = 0;
     };
 
@@ -406,7 +415,6 @@ export const useWordStore = defineStore('words', () => {
 
             // 4. Update timestamp
             lastSyncTimestamp.value = data.timestamp;
-            localStorage.setItem('lastSyncTimestamp', data.timestamp.toString());
 
         } catch (e) {
             console.error('Sync error:', e);
@@ -513,6 +521,8 @@ export const useWordStore = defineStore('words', () => {
         downloadDictionary,
         languageStatus,
         checkAllDictionaries,
-        serverUrl: apiUrl // Expose apiUrl as serverUrl for compatibility
+        serverUrl: apiUrl, // Expose apiUrl as serverUrl for compatibility
+        autoPlayAudio,
+        setAutoPlayAudio
     };
 });

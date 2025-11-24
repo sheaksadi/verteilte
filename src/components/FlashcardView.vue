@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { impactFeedback, vibrate } from '@tauri-apps/plugin-haptics';
+import { Volume2, Loader2 } from 'lucide-vue-next';
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -289,23 +290,12 @@ const handlePaste = (event: ClipboardEvent) => {
 const audioCache = new Map<string, string>(); // URL cache
 const isPlaying = ref(false);
 
-const playAudio = async (text: string) => {
-  if (!text) return;
-  
+const fetchAudio = async (text: string): Promise<string | null> => {
+  if (!text) return null;
+  if (audioCache.has(text)) return audioCache.get(text)!;
+
   try {
-    // Check if we have a cached blob URL
-    let audioUrl = audioCache.get(text);
-    
-    if (!audioUrl) {
-      // Construct Server URL
-      // Assuming store has the server URL or we use a relative path if proxied, 
-      // but here we might need the full URL if it's a different port/host.
-      // The store usually handles API calls. Let's try to get the base URL from store or env.
-      // For now, let's assume the store has a way to get the API URL or we use the configured server URL.
-      // We can use the store.serverUrl if available, or construct it.
-      
       const baseUrl = store.serverUrl || 'http://verteilte.joleif.dev'; // Fallback
-      // Ensure no double slash
       const cleanBase = baseUrl.replace(/\/$/, '');
       const fetchUrl = `${cleanBase}/tts?text=${encodeURIComponent(text)}`;
       
@@ -313,9 +303,21 @@ const playAudio = async (text: string) => {
       if (!response.ok) throw new Error('TTS fetch failed');
       
       const blob = await response.blob();
-      audioUrl = URL.createObjectURL(blob);
+      const audioUrl = URL.createObjectURL(blob);
       audioCache.set(text, audioUrl);
-    }
+      return audioUrl;
+  } catch (e) {
+      console.error(`Failed to fetch audio for "${text}":`, e);
+      return null;
+  }
+};
+
+const playAudio = async (text: string) => {
+  if (!text || isPlaying.value) return;
+  
+  try {
+    const audioUrl = await fetchAudio(text);
+    if (!audioUrl) return;
     
     const audio = new Audio(audioUrl);
     isPlaying.value = true;
@@ -327,11 +329,20 @@ const playAudio = async (text: string) => {
       console.error("Audio playback error");
     };
     await audio.play();
-    
   } catch (e) {
     console.error("Failed to play audio:", e);
     isPlaying.value = false;
   }
+};
+
+const prefetchUpcoming = () => {
+  // Prefetch next 3 words
+  const nextWords = dueWords.value.slice(currentIndex.value + 1, currentIndex.value + 4);
+  nextWords.forEach(word => {
+    if (word.original) {
+      fetchAudio(word.original);
+    }
+  });
 };
 
 const flipCard = () => {
@@ -350,10 +361,9 @@ const flipCard = () => {
       }
     }, 300);
   } else {
-    // Back side (German) - Play Audio
-    // The German word is in currentCard.value.original
-    if (currentCard.value?.original) {
-      playAudio(currentCard.value.original);
+    // Back side (German)
+    if (store.autoPlayAudio && currentCard.value?.original) {
+        playAudio(currentCard.value.original);
     }
   }
 };
@@ -419,12 +429,17 @@ onMounted(() => {
   });
   
   if (dueWords.value.length > 0) {
-    nextTick(() => initializeInput());
+    nextTick(() => {
+      initializeInput();
+      prefetchUpcoming(); // Prefetch initial
+    });
   }
+  console.log('[FlashcardView] Mounted. Store autoPlayAudio:', store.autoPlayAudio);
 });
 
 watch(currentIndex, () => {
   initializeInput();
+  prefetchUpcoming(); // Prefetch on change
 });
 </script>
 
@@ -522,9 +537,18 @@ watch(currentIndex, () => {
                 {{ currentCard?.article }}
               </span>
             </div>
-            <div class="font-bold text-primary dark:text-purple-400 mb-4 transition-all duration-300 max-h-[200px] overflow-y-auto break-words w-full px-2"
+            <div class="font-bold text-primary dark:text-purple-400 mb-4 transition-all duration-300 max-h-[200px] overflow-y-auto break-words w-full px-2 flex items-center justify-center gap-2"
                  :class="getTextSizeClass(currentCard?.original)">
               {{ currentCard?.original }}
+              <button 
+                @click.stop="playAudio(currentCard?.original || '')"
+                class="p-2 rounded-full hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
+                :disabled="isPlaying"
+                title="Play Audio"
+              >
+                <Volume2 v-if="!isPlaying" class="w-6 h-6 text-muted-foreground hover:text-primary" />
+                <Loader2 v-else class="w-6 h-6 text-primary animate-spin" />
+              </button>
             </div>
 
             <div v-if="userInputString.trim()" class="mt-4 p-4 rounded-lg" :class="{

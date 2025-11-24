@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { SwitchRoot, SwitchThumb } from 'reka-ui';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { Moon, Sun, Save, RotateCcw, Download, Upload, RefreshCw, LogOut, Trash2, Key, Database, Brain, Palette, Bug } from 'lucide-vue-next';
@@ -146,6 +147,17 @@ const handleLogout = () => {
 
 onMounted(() => {
   initLocalSettings();
+  console.log('[Settings] Mounted. Store autoPlayAudio:', store.autoPlayAudio);
+});
+
+const handleAutoPlayToggle = (val: boolean) => {
+  console.log('[Settings] Toggle event received:', val);
+  store.setAutoPlayAudio(val);
+};
+
+const autoPlayProxy = computed({
+  get: () => store.autoPlayAudio,
+  set: (val) => handleAutoPlayToggle(val)
 });
 </script>
 
@@ -159,7 +171,7 @@ onMounted(() => {
     <!-- Appearance -->
     <Card>
       <CardHeader>
-        <CardTitle class="flex items-center gap-2"><Palette class="h-5 w-5" /> Appearance</CardTitle>
+        <CardTitle class="flex items-center gap-2"><Palette class="h-5 w-5" /> Appearance & Audio</CardTitle>
       </CardHeader>
       <CardContent class="space-y-4">
         <div class="flex items-center justify-between">
@@ -171,6 +183,22 @@ onMounted(() => {
             <Moon v-if="isDarkMode" class="h-5 w-5" />
             <Sun v-else class="h-5 w-5" />
           </Button>
+        </div>
+        <div class="flex items-center justify-between">
+          <div class="space-y-0.5">
+            <Label>Auto-play Audio</Label>
+            <p class="text-sm text-muted-foreground">Automatically play audio when flipping card</p>
+          </div>
+          <div class="flex items-center gap-4">
+            <SwitchRoot
+              v-model="autoPlayProxy"
+              class="peer inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=unchecked]:bg-input"
+            >
+              <SwitchThumb
+                class="pointer-events-none block h-5 w-5 rounded-full bg-background shadow-lg ring-0 transition-transform data-[state=checked]:translate-x-5 data-[state=unchecked]:translate-x-0"
+              />
+            </SwitchRoot>
+          </div>
         </div>
       </CardContent>
     </Card>
