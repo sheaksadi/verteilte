@@ -150,38 +150,85 @@ async function convert() {
 
                 let pronunciation = '';
                 let gender = '';
-                let cleanDefinition = definition;
+                const meanings = [];
+                const notes = [];
+                const synonyms = [];
+                const seeAlso = [];
 
-                // Extract pronunciation: /.../
-                const phoneticMatch = cleanDefinition.match(/\/([^\/]+)\//);
-                if (phoneticMatch) {
-                    pronunciation = phoneticMatch[1];
-                    // Remove from definition
-                    cleanDefinition = cleanDefinition.replace(phoneticMatch[0], '').trim();
-                }
+                const defLines = definition.split('\n');
 
-                // Extract grammar: <...>
-                const grammarMatch = cleanDefinition.match(/<([^>]+)>/);
-                if (grammarMatch) {
-                    const grammarTags = grammarMatch[1].split(',').map(t => t.trim());
+                for (let i = 0; i < defLines.length; i++) {
+                    let line = defLines[i].trim();
+                    if (!line) continue;
 
-                    // Map to articles
-                    if (grammarTags.includes('masc') || grammarTags.includes('m')) gender = 'der';
-                    else if (grammarTags.includes('fem') || grammarTags.includes('f')) gender = 'die';
-                    else if (grammarTags.includes('neut') || grammarTags.includes('n')) gender = 'das';
+                    // Check for header info in the first line (or any line that looks like a header)
+                    // But usually, the DICT format puts the headword and phonetic in the first line
+                    if (i === 0) {
+                        const phoneticMatch = line.match(/\/([^\/]+)\//);
+                        if (phoneticMatch) {
+                            pronunciation = phoneticMatch[1];
+                            // Remove it from line to process rest
+                            line = line.replace(phoneticMatch[0], '').trim();
+                        }
 
-                    // Remove from definition
-                    cleanDefinition = cleanDefinition.replace(grammarMatch[0], '').trim();
+                        const grammarMatch = line.match(/<([^>]+)>/);
+                        if (grammarMatch) {
+                            const tags = grammarMatch[1];
+                            if (/\b(masc|m)\b/.test(tags)) gender = 'der';
+                            else if (/\b(fem|f)\b/.test(tags)) gender = 'die';
+                            else if (/\b(neut|n)\b/.test(tags)) gender = 'das';
+
+                            // Remove it
+                            line = line.replace(grammarMatch[0], '').trim();
+                        }
+
+                        // Remove the headword if it's repeated at the start
+                        if (line.toLowerCase().startsWith(headword.toLowerCase())) {
+                            line = line.substring(headword.length).trim();
+                        }
+                    }
+
+                    // Parse specific fields
+                    if (line.startsWith('Note:')) {
+                        notes.push(line.replace(/^Note:\s*/i, '').trim());
+                    } else if (/^Synonyms?:/i.test(line)) {
+                        const syns = line.match(/\{([^}]+)\}/g);
+                        if (syns) {
+                            synonyms.push(...syns.map(s => s.replace(/[{}]/g, '').trim()));
+                        }
+                    } else if (line.startsWith('see:')) {
+                        const refs = line.match(/\{([^}]+)\}/g);
+                        if (refs) {
+                            seeAlso.push(...refs.map(r => r.replace(/[{}]/g, '').trim()));
+                        }
+                    } else {
+                        // Meaning line
+                        // Clean up tags
+                        let cleaned = line
+                            .replace(/<[^>]+>/g, '') // Remove <tags>
+                            .replace(/\[[^\]]+\]/g, '') // Remove [tags]
+                            .replace(/\s+/g, ' ')
+                            .trim();
+
+                        // If it's an example (quoted), maybe put in notes?
+                        // User snippet put everything else in meanings.
+                        // But "Kirche" example had "Note: religious body..."
+                        // Let's stick to user snippet logic: if it's not Note/Syn/See, it's meaning.
+
+                        if (cleaned) {
+                            meanings.push(cleaned);
+                        }
+                    }
                 }
 
                 entriesList.push({
                     word: headword,
                     pronunciation: pronunciation,
                     gender: gender,
-                    meanings: [cleanDefinition],
-                    notes: [],
-                    synonyms: [],
-                    seeAlso: []
+                    meanings: meanings,
+                    notes: notes,
+                    synonyms: synonyms,
+                    seeAlso: seeAlso
                 });
             }
 
