@@ -176,9 +176,27 @@ export function useAudio() {
         }, 100);
     };
 
+    const deleteAudio = async (text: string) => {
+        try {
+            const { BaseDirectory, remove, exists } = await import('@tauri-apps/plugin-fs');
+            const filename = getFilename(text);
+
+            if (await exists(filename, { baseDir: BaseDirectory.AppData })) {
+                await remove(filename, { baseDir: BaseDirectory.AppData });
+                console.log(`[Audio] Deleted from file system: ${filename}`);
+                return true;
+            }
+            return false;
+        } catch (e) {
+            console.error(`[Audio] Failed to delete audio for "${text}":`, e);
+            return false;
+        }
+    };
+
     return {
         isPlaying,
         playAudio,
-        prefetchAudio
+        prefetchAudio,
+        deleteAudio
     };
 }

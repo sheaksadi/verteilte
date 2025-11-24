@@ -11,6 +11,9 @@ import { Search, Plus, Trash2, Volume2, Upload, Globe, Download, RefreshCw, Load
 import { searchDictionary } from '@/lib/dictionary';
 import ImportDialog from '@/components/ImportDialog.vue';
 import { Progress } from '@/components/ui/progress';
+import { useAudio } from '@/composables/useAudio';
+
+const { playAudio, deleteAudio, prefetchAudio } = useAudio();
 
 const store = useWordStore();
 const { filteredWords, searchQuery, currentLanguage, languageStatus } = storeToRefs(store);
@@ -74,6 +77,10 @@ const addWord = async () => {
   const article = newArticle.value === 'none' ? '' : newArticle.value;
   await store.addWord(newOriginal.value, newTranslation.value, article);
   
+  // Prefetch audio
+  const textToSpeak = article ? `${article} ${newOriginal.value}` : newOriginal.value;
+  prefetchAudio([textToSpeak]);
+  
   // Reset form
   newOriginal.value = '';
   newTranslation.value = '';
@@ -87,10 +94,17 @@ const deleteWord = async (id: string) => {
   }
 };
 
-const speak = (text: string) => {
-  const utterance = new SpeechSynthesisUtterance(text);
-  utterance.lang = 'de-DE';
-  window.speechSynthesis.speak(utterance);
+const speak = (word: any) => {
+  const text = word.article ? `${word.article} ${word.original}` : word.original;
+  playAudio(text);
+};
+
+const deleteAudioCache = async (word: any) => {
+  const text = word.article ? `${word.article} ${word.original}` : word.original;
+  if (await deleteAudio(text)) {
+    // Optional: Show toast or feedback
+    console.log('Audio cache cleared for', text);
+  }
 };
 
 // Helper to get article color
@@ -234,8 +248,11 @@ const formatNextDue = (timestamp: number): string => {
                     {{ word.article }}
                   </Badge>
                   <span class="font-semibold text-lg">{{ word.original }}</span>
-                  <Button variant="ghost" size="icon" class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" @click="speak(word.original)">
+                  <Button variant="ghost" size="icon" class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" @click="speak(word)">
                     <Volume2 class="h-3 w-3" />
+                  </Button>
+                  <Button variant="ghost" size="icon" class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive" @click="deleteAudioCache(word)" title="Clear Audio Cache">
+                    <Trash2 class="h-3 w-3" />
                   </Button>
                 </div>
                 <span class="text-muted-foreground">{{ word.translation }}</span>
