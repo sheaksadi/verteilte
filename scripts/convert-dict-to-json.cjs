@@ -174,9 +174,9 @@ async function convert() {
                         const grammarMatch = line.match(/<([^>]+)>/);
                         if (grammarMatch) {
                             const tags = grammarMatch[1];
-                            if (/\b(masc|m)\b/.test(tags)) gender = 'der';
-                            else if (/\b(fem|f)\b/.test(tags)) gender = 'die';
-                            else if (/\b(neut|n)\b/.test(tags)) gender = 'das';
+                            if (/\b(masc|m)\b/.test(tags)) gender = 'masc';
+                            else if (/\b(fem|f)\b/.test(tags)) gender = 'fem';
+                            else if (/\b(neut|n)\b/.test(tags)) gender = 'neut';
 
                             // Remove it
                             line = line.replace(grammarMatch[0], '').trim();
@@ -210,13 +210,21 @@ async function convert() {
                             .replace(/\s+/g, ' ')
                             .trim();
 
-                        // If it's an example (quoted), maybe put in notes?
-                        // User snippet put everything else in meanings.
-                        // But "Kirche" example had "Note: religious body..."
-                        // Let's stick to user snippet logic: if it's not Note/Syn/See, it's meaning.
-
                         if (cleaned) {
-                            meanings.push(cleaned);
+                            // Split by comma respecting quotes
+                            const parts = cleaned.split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+
+                            for (let part of parts) {
+                                part = part.trim();
+                                if (!part) continue;
+
+                                // Check if it's an example: "..." - ...
+                                if (/^"[^"]+"\s*-\s*.+/.test(part)) {
+                                    notes.push(part);
+                                } else {
+                                    meanings.push(part);
+                                }
+                            }
                         }
                     }
                 }
