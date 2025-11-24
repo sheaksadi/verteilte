@@ -213,7 +213,8 @@ export const useWordStore = defineStore('words', () => {
             if (!response.ok) throw new Error(`Failed to download dictionary: ${response.statusText}`);
 
             const reader = response.body?.getReader();
-            const contentLength = +response.headers.get('Content-Length')!;
+            const contentLengthHeader = response.headers.get('Content-Length');
+            const contentLength = contentLengthHeader ? parseInt(contentLengthHeader, 10) : 0;
             let receivedLength = 0;
             const chunks = [];
 
@@ -225,7 +226,13 @@ export const useWordStore = defineStore('words', () => {
 
                 chunks.push(value);
                 receivedLength += value.length;
-                downloadProgress.value = Math.round((receivedLength / contentLength) * 100);
+
+                if (contentLength > 0) {
+                    downloadProgress.value = Math.round((receivedLength / contentLength) * 100);
+                } else {
+                    // Indeterminate progress
+                    downloadProgress.value = -1;
+                }
             }
 
             const blob = new Blob(chunks);
@@ -235,8 +242,14 @@ export const useWordStore = defineStore('words', () => {
             downloadStatus.value = 'Saving dictionary...';
 
             // Save to app data dir using tauri-plugin-fs
-            const { BaseDirectory, writeFile } = await import('@tauri-apps/plugin-fs');
+            const { BaseDirectory, writeFile, remove, exists } = await import('@tauri-apps/plugin-fs');
             await writeFile(`dictionary_${lang}.db.gz`, uint8Array, { baseDir: BaseDirectory.AppData });
+
+            // Remove existing .db file to force re-extraction
+            const dbFile = `dictionary_${lang}.db`;
+            if (await exists(dbFile, { baseDir: BaseDirectory.AppData })) {
+                await remove(dbFile, { baseDir: BaseDirectory.AppData });
+            }
 
             downloadStatus.value = 'Dictionary downloaded. Initializing...';
             downloadProgress.value = null;

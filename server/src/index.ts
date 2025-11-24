@@ -32,7 +32,11 @@ import os from 'os';
 import { migrate } from './db';
 
 // Serve dictionary files
-app.use('/dictionaries', express.static(path.join(__dirname, '../dictionaries')));
+// Serve dictionary files
+app.use('/dictionaries', (req, res, next) => {
+    console.log(`[Dictionary Request] ${req.method} ${req.url}`);
+    next();
+}, express.static(path.join(__dirname, '../dictionaries')));
 
 migrate().then(() => {
     app.listen(Number(port), '0.0.0.0', () => {

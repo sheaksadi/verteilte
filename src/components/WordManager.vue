@@ -135,6 +135,9 @@ const formatNextDue = (timestamp: number): string => {
           </SelectContent>
         </Select>
 
+        <Button variant="outline" size="icon" @click="store.downloadDictionary(currentLanguage)" :disabled="downloadProgress !== null" title="Redownload Dictionary">
+          <Download class="h-4 w-4" :class="{ 'animate-bounce': downloadProgress !== null }" />
+        </Button>
         <Button variant="outline" size="icon" @click="showImportDialog = true">
           <Upload class="h-4 w-4" />
         </Button>
@@ -153,9 +156,9 @@ const formatNextDue = (timestamp: number): string => {
         <div class="flex-1 space-y-1">
           <div class="flex justify-between text-sm font-medium">
             <span>{{ downloadStatus }}</span>
-            <span>{{ downloadProgress }}%</span>
+            <span v-if="downloadProgress !== null && downloadProgress >= 0">{{ downloadProgress }}%</span>
           </div>
-          <Progress :model-value="downloadProgress" class="h-2" />
+          <Progress :model-value="downloadProgress >= 0 ? downloadProgress : undefined" class="h-2" :class="{ 'animate-pulse': downloadProgress < 0 }" />
         </div>
       </CardContent>
     </Card>
