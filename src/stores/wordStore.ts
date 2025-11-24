@@ -28,6 +28,7 @@ export const useWordStore = defineStore('words', () => {
 
     const isKeepGoingMode = ref(false);
     const keepGoingWords = ref<Word[]>([]);
+    const keepGoingSeenIds = ref<Set<string>>(new Set());
 
     // Auth State
     const user = ref<{ id: string; username: string } | null>(null);
@@ -164,13 +165,26 @@ export const useWordStore = defineStore('words', () => {
 
     const startKeepGoingMode = async () => {
         const now = Date.now();
-        // Find 5 words with closest nextReviewAt that are in the future
-        const futureWords = words.value
-            .filter(w => w.nextReviewAt > now)
+
+        // Filter out words we've already seen in this session
+        let candidates = words.value
+            .filter(w => w.nextReviewAt > now && !keepGoingSeenIds.value.has(w.id));
+
+        // If we've seen everything (or almost everything), reset the seen list to loop over
+        if (candidates.length === 0) {
+            keepGoingSeenIds.value.clear();
+            candidates = words.value.filter(w => w.nextReviewAt > now);
+        }
+
+        // Find 5 words with closest nextReviewAt
+        const futureWords = candidates
             .sort((a, b) => a.nextReviewAt - b.nextReviewAt)
             .slice(0, 5);
 
         if (futureWords.length === 0) return;
+
+        // Mark these as seen
+        futureWords.forEach(w => keepGoingSeenIds.value.add(w.id));
 
         // Deep copy to avoid affecting the main list state
         keepGoingWords.value = JSON.parse(JSON.stringify(futureWords));

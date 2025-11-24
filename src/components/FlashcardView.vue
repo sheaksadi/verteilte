@@ -6,6 +6,7 @@ import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { impactFeedback, vibrate } from '@tauri-apps/plugin-haptics';
 import { Volume2, Loader2 } from 'lucide-vue-next';
+import { useAudio } from '@/composables/useAudio';
 
 const props = defineProps<{
   isDarkMode: boolean;
@@ -287,62 +288,15 @@ const handlePaste = (event: ClipboardEvent) => {
   }, 10);
 };
 
-const audioCache = new Map<string, string>(); // URL cache
-const isPlaying = ref(false);
-
-const fetchAudio = async (text: string): Promise<string | null> => {
-  if (!text) return null;
-  if (audioCache.has(text)) return audioCache.get(text)!;
-
-  try {
-      const baseUrl = store.serverUrl || 'http://verteilte.joleif.dev'; // Fallback
-      const cleanBase = baseUrl.replace(/\/$/, '');
-      const fetchUrl = `${cleanBase}/tts?text=${encodeURIComponent(text)}`;
-      
-      const response = await fetch(fetchUrl);
-      if (!response.ok) throw new Error('TTS fetch failed');
-      
-      const blob = await response.blob();
-      const audioUrl = URL.createObjectURL(blob);
-      audioCache.set(text, audioUrl);
-      return audioUrl;
-  } catch (e) {
-      console.error(`Failed to fetch audio for "${text}":`, e);
-      return null;
-  }
-};
-
-const playAudio = async (text: string) => {
-  if (!text || isPlaying.value) return;
-  
-  try {
-    const audioUrl = await fetchAudio(text);
-    if (!audioUrl) return;
-    
-    const audio = new Audio(audioUrl);
-    isPlaying.value = true;
-    audio.onended = () => {
-      isPlaying.value = false;
-    };
-    audio.onerror = () => {
-      isPlaying.value = false;
-      console.error("Audio playback error");
-    };
-    await audio.play();
-  } catch (e) {
-    console.error("Failed to play audio:", e);
-    isPlaying.value = false;
-  }
-};
+const { isPlaying, playAudio, prefetchAudio } = useAudio();
 
 const prefetchUpcoming = () => {
-  // Prefetch next 3 words
+  // Prefetch next 3 words using bulk endpoint
   const nextWords = dueWords.value.slice(currentIndex.value + 1, currentIndex.value + 4);
-  nextWords.forEach(word => {
-    if (word.original) {
-      fetchAudio(word.original);
-    }
-  });
+  const texts = nextWords.map(w => w.original).filter(Boolean);
+  if (texts.length > 0) {
+    prefetchAudio(texts);
+  }
 };
 
 const flipCard = () => {

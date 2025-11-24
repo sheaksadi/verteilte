@@ -40,10 +40,6 @@ app.get('/tts', (req, res) => {
     const piperPath = path.resolve('/app/piper/piper');
     const modelPath = path.resolve('/app/piper-model/de_DE-thorsten-high.onnx');
 
-    // Check if we are running locally (not in docker) for dev fallback
-    // But user said "run on server with docker", so we assume paths are correct for docker.
-    // If dev environment, paths might differ. 
-
     console.log(`[TTS] Spawning Piper process...`);
 
     const piperProcess = spawn(piperPath, [
@@ -59,7 +55,6 @@ app.get('/tts', (req, res) => {
     piperProcess.stdin.end();
 
     piperProcess.stderr.on('data', (data) => {
-        // Piper writes some info to stderr even on success, so we log it as debug/info unless it looks like an error
         const msg = data.toString();
         if (msg.includes('Error') || msg.includes('error')) {
             console.error(`[Piper Error]: ${msg}`);
@@ -72,7 +67,6 @@ app.get('/tts', (req, res) => {
         const duration = Date.now() - startTime;
         if (code !== 0) {
             console.error(`[TTS] Failed. Piper process exited with code ${code} after ${duration}ms`);
-            // If headers haven't been sent, we could send 500, but stdout might have started.
             if (!res.headersSent) {
                 res.status(500).send('TTS Generation Failed');
             }
@@ -80,6 +74,56 @@ app.get('/tts', (req, res) => {
             console.log(`[TTS] Success! Audio generated in ${duration}ms`);
         }
     });
+});
+
+app.post('/tts/bulk', async (req, res) => {
+    const { texts } = req.body;
+    if (!texts || !Array.isArray(texts)) {
+        res.status(400).json({ error: 'Missing or invalid "texts" array' });
+        return;
+    }
+
+    console.log(`[TTS Bulk] Received request for ${texts.length} items`);
+    const results: { text: string; audio: string | null; error?: string }[] = [];
+
+    const piperPath = path.resolve('/app/piper/piper');
+    const modelPath = path.resolve('/app/piper-model/de_DE-thorsten-high.onnx');
+
+    // Process sequentially to avoid overloading the server
+    for (const text of texts) {
+        try {
+            const audioBase64 = await new Promise<string>((resolve, reject) => {
+                const piperProcess = spawn(piperPath, [
+                    '--model', modelPath,
+                    '--output_file', '-'
+                ]);
+
+                let audioChunks: Buffer[] = [];
+                piperProcess.stdout.on('data', (chunk) => audioChunks.push(chunk));
+
+                piperProcess.stdin.write(text);
+                piperProcess.stdin.end();
+
+                piperProcess.on('close', (code) => {
+                    if (code !== 0) {
+                        reject(new Error(`Piper exited with code ${code}`));
+                    } else {
+                        const audioBuffer = Buffer.concat(audioChunks);
+                        resolve(audioBuffer.toString('base64'));
+                    }
+                });
+
+                piperProcess.on('error', (err) => reject(err));
+            });
+
+            results.push({ text, audio: audioBase64 });
+        } catch (error) {
+            console.error(`[TTS Bulk] Failed for "${text}":`, error);
+            results.push({ text, audio: null, error: String(error) });
+        }
+    }
+
+    res.json({ results });
 });
 
 
