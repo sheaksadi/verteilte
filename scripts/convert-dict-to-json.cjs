@@ -146,14 +146,39 @@ async function convert() {
 
             } else {
                 // Normal Mode: headword is Source (German), definition is Target (English)
-                // We want Source -> Target (which is what we have)
-                // But user wants "English as the meaning word". 
-                // In deu-eng, Headword=German, Definition=English. 
-                // So "word" = German, "meanings" = [English definition]. This matches.
+                // Format: Word /phonetic/ <grammar> Meaning
+
+                let pronunciation = '';
+                let gender = '';
+                let cleanDefinition = definition;
+
+                // Extract pronunciation: /.../
+                const phoneticMatch = cleanDefinition.match(/\/([^\/]+)\//);
+                if (phoneticMatch) {
+                    pronunciation = phoneticMatch[1];
+                    // Remove from definition
+                    cleanDefinition = cleanDefinition.replace(phoneticMatch[0], '').trim();
+                }
+
+                // Extract grammar: <...>
+                const grammarMatch = cleanDefinition.match(/<([^>]+)>/);
+                if (grammarMatch) {
+                    const grammarTags = grammarMatch[1].split(',').map(t => t.trim());
+
+                    // Map to articles
+                    if (grammarTags.includes('masc') || grammarTags.includes('m')) gender = 'der';
+                    else if (grammarTags.includes('fem') || grammarTags.includes('f')) gender = 'die';
+                    else if (grammarTags.includes('neut') || grammarTags.includes('n')) gender = 'das';
+
+                    // Remove from definition
+                    cleanDefinition = cleanDefinition.replace(grammarMatch[0], '').trim();
+                }
 
                 entriesList.push({
                     word: headword,
-                    meanings: [definition],
+                    pronunciation: pronunciation,
+                    gender: gender,
+                    meanings: [cleanDefinition],
                     notes: [],
                     synonyms: [],
                     seeAlso: []
