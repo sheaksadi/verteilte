@@ -97,9 +97,9 @@ export const useWordStore = defineStore('words', () => {
     const addWord = async (original: string, translation: string, article: string) => {
         const now = Date.now();
         const newWord: Omit<Word, 'id' | 'updatedAt' | 'deletedAt'> = {
-            original: original.trim(),
-            translation: translation.trim(),
-            article: article.trim(),
+            original: (original || '').trim(),
+            translation: (translation || '').trim(),
+            article: (article || '').trim(),
             language: currentLanguage.value,
             score: 0,
             createdAt: now,

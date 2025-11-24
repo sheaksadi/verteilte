@@ -140,7 +140,7 @@ const analyzeImage = async () => {
         if (Array.isArray(words)) {
           // Cross-check with dictionary and existing words
           const processedWords = await Promise.all(words.map(async (w: any) => {
-            let article = w.article;
+            let article = w.article || '';
             let status: 'new' | 'exact' | 'similar' = 'new';
             let similarTo: string | undefined = undefined;
             let selected = true;
