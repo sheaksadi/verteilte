@@ -8,21 +8,36 @@ const Database = require('better-sqlite3');
 console.log('📚 Building SQLite dictionary database...\n');
 
 // Paths
-const inputFile = path.join(__dirname, '../public/dictionary.json.gz');
-const outputDb = path.join(__dirname, '../public/dictionary.db');
-const outputGz = path.join(__dirname, '../public/dictionary.db.gz');
+const args = process.argv.slice(2);
+let inputFile = '';
+let outputDb = '';
+let outputGz = '';
 
-// Step 1: Read and decompress JSON
-console.log('1️⃣  Reading dictionary.json.gz...');
-const compressed = fs.readFileSync(inputFile);
-console.log(`   Compressed size: ${(compressed.length / 1024 / 1024).toFixed(2)} MB`);
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '--in') inputFile = args[++i];
+  else if (args[i] === '--out') outputDb = args[++i];
+}
 
-console.log('2️⃣  Decompressing...');
-const decompressed = zlib.gunzipSync(compressed);
-console.log(`   Decompressed size: ${(decompressed.length / 1024 / 1024).toFixed(2)} MB`);
+if (!inputFile || !outputDb) {
+  console.error('Usage: node build-dictionary-db.cjs --in <json_path> --out <db_path>');
+  process.exit(1);
+}
+
+// Resolve paths
+inputFile = path.resolve(process.cwd(), inputFile);
+outputDb = path.resolve(process.cwd(), outputDb);
+outputGz = outputDb + '.gz';
+
+console.log(`Input: ${inputFile}`);
+console.log(`Output: ${outputGz}`);
+
+// Step 1: Read JSON
+console.log('1️⃣  Reading dictionary.json...');
+const jsonContent = fs.readFileSync(inputFile, 'utf-8');
+console.log(`   File size: ${(jsonContent.length / 1024 / 1024).toFixed(2)} MB`);
 
 console.log('3️⃣  Parsing JSON...');
-const entries = JSON.parse(decompressed.toString());
+const entries = JSON.parse(jsonContent);
 console.log(`   Total entries: ${entries.length.toLocaleString()}`);
 
 // Step 2: Create SQLite database
@@ -77,7 +92,7 @@ const startTime = Date.now();
 db.transaction(() => {
   for (let i = 0; i < entries.length; i++) {
     const entry = entries[i];
-    
+
     insert.run(
       entry.word || '',
       entry.pronunciation || '',
@@ -87,7 +102,7 @@ db.transaction(() => {
       JSON.stringify(entry.synonyms || []),
       JSON.stringify(entry.seeAlso || [])
     );
-    
+
     if ((i + 1) % 50000 === 0) {
       console.log(`   Inserted ${(i + 1).toLocaleString()} / ${entries.length.toLocaleString()}`);
     }
@@ -116,8 +131,6 @@ fs.unlinkSync(outputDb);
 // Summary
 console.log('\n✅ Done!');
 console.log(`\nResults:`);
-console.log(`  - Created: public/dictionary.db.gz`);
-console.log(`  - Entries: ${entries.length.toLocaleString()}`);
+console.log(`  - Created: ${path.relative(process.cwd(), outputGz)}`);
 console.log(`  - Compressed: ${(compressed_db.length / 1024 / 1024).toFixed(2)} MB`);
-console.log(`  - Savings: ${((compressed.length - compressed_db.length) / 1024 / 1024).toFixed(2)} MB`);
 console.log(`\nYou can now use this in your Tauri app!`);

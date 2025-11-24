@@ -169,12 +169,35 @@ export const useWordStore = defineStore('words', () => {
         if (isLoggedIn.value) sync();
     };
 
+    const languageStatus = ref<Record<string, { exists: boolean, downloading: boolean }>>({});
+
+    const checkAllDictionaries = async () => {
+        const langs = ['de', 'es', 'fr', 'it'];
+        const { initializeDictionary } = await import('@/lib/dictionary');
+
+        for (const lang of langs) {
+            try {
+                // We use initializeDictionary just to check existence, but it also loads the DB if exists.
+                // That's fine, but maybe we should have a lighter check?
+                // For now, let's just use it. It returns info.
+                // Actually, initializeDictionary sets the global db instance. We shouldn't call it for all.
+                // We need a new function in dictionary.ts or just invoke the command directly here?
+                // Let's invoke the command directly to avoid side effects on the active DB.
+                const { invoke } = await import('@tauri-apps/api/core');
+                const info = await invoke<DictionaryInfo>('ensure_dictionary_db', { lang });
+
+                languageStatus.value[lang] = {
+                    exists: info.exists,
+                    downloading: languageStatus.value[lang]?.downloading || false
+                };
+            } catch (e) {
+                console.error(`Failed to check dictionary for ${lang}:`, e);
+            }
+        }
+    };
+
     const initDictionary = async () => {
         try {
-            // Pass current language to initializeDictionary
-            // We need to update initializeDictionary signature in lib/dictionary.ts first?
-            // Actually, let's handle the download logic here or in lib/dictionary.ts
-            // For now, let's assume initializeDictionary takes language
             const { initializeDictionary } = await import('@/lib/dictionary');
             const info = await initializeDictionary(currentLanguage.value);
 
@@ -183,6 +206,12 @@ export const useWordStore = defineStore('words', () => {
                 debugInfo.value.dictionaryLoaded = info.exists;
                 debugInfo.value.dictionaryVersion = info.version;
                 debugInfo.value.dictionaryLogs = info.logs;
+
+                // Update status for current language
+                languageStatus.value[currentLanguage.value] = {
+                    exists: info.exists,
+                    downloading: languageStatus.value[currentLanguage.value]?.downloading || false
+                };
 
                 if (!info.exists) {
                     // Dictionary missing, trigger download
@@ -203,9 +232,12 @@ export const useWordStore = defineStore('words', () => {
     const downloadStatus = ref<string>('');
 
     const downloadDictionary = async (lang: string) => {
-        if (downloadProgress.value !== null) return; // Already downloading
+        if (languageStatus.value[lang]?.downloading) return; // Already downloading
 
         try {
+            // Set downloading state
+            languageStatus.value[lang] = { ...languageStatus.value[lang], downloading: true };
+
             downloadStatus.value = 'Downloading dictionary...';
             downloadProgress.value = 0;
 
@@ -254,13 +286,21 @@ export const useWordStore = defineStore('words', () => {
             downloadStatus.value = 'Dictionary downloaded. Initializing...';
             downloadProgress.value = null;
 
-            // Re-initialize dictionary
-            await initDictionary();
+            // Update status
+            languageStatus.value[lang] = { exists: true, downloading: false };
+
+            // Re-initialize dictionary if it's the current one
+            if (lang === currentLanguage.value) {
+                await initDictionary();
+            }
 
         } catch (e) {
             console.error('Download failed:', e);
             downloadStatus.value = `Download failed: ${e instanceof Error ? e.message : String(e)}`;
             downloadProgress.value = null;
+
+            // Reset downloading state
+            languageStatus.value[lang] = { ...languageStatus.value[lang], downloading: false };
         }
     };
 
@@ -470,6 +510,8 @@ export const useWordStore = defineStore('words', () => {
         downloadProgress,
         downloadStatus,
         setLanguage,
-        downloadDictionary
+        downloadDictionary,
+        languageStatus,
+        checkAllDictionaries
     };
 });

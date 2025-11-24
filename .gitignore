@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 public/de_DE-thorsten-high.onnx
 src-tauri/resources/de_DE-thorsten-high.onnx
+Raw-Dictonaries/*
+
+# Dictionary files
+public/*.json
+public/*.db
+public/*.db.gz
