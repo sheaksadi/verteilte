@@ -512,6 +512,7 @@ export const useWordStore = defineStore('words', () => {
         setLanguage,
         downloadDictionary,
         languageStatus,
-        checkAllDictionaries
+        checkAllDictionaries,
+        serverUrl: apiUrl // Expose apiUrl as serverUrl for compatibility
     };
 });

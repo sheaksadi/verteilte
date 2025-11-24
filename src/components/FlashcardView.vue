@@ -286,6 +286,54 @@ const handlePaste = (event: ClipboardEvent) => {
   }, 10);
 };
 
+const audioCache = new Map<string, string>(); // URL cache
+const isPlaying = ref(false);
+
+const playAudio = async (text: string) => {
+  if (!text) return;
+  
+  try {
+    // Check if we have a cached blob URL
+    let audioUrl = audioCache.get(text);
+    
+    if (!audioUrl) {
+      // Construct Server URL
+      // Assuming store has the server URL or we use a relative path if proxied, 
+      // but here we might need the full URL if it's a different port/host.
+      // The store usually handles API calls. Let's try to get the base URL from store or env.
+      // For now, let's assume the store has a way to get the API URL or we use the configured server URL.
+      // We can use the store.serverUrl if available, or construct it.
+      
+      const baseUrl = store.serverUrl || 'http://verteilte.joleif.dev'; // Fallback
+      // Ensure no double slash
+      const cleanBase = baseUrl.replace(/\/$/, '');
+      const fetchUrl = `${cleanBase}/tts?text=${encodeURIComponent(text)}`;
+      
+      const response = await fetch(fetchUrl);
+      if (!response.ok) throw new Error('TTS fetch failed');
+      
+      const blob = await response.blob();
+      audioUrl = URL.createObjectURL(blob);
+      audioCache.set(text, audioUrl);
+    }
+    
+    const audio = new Audio(audioUrl);
+    isPlaying.value = true;
+    audio.onended = () => {
+      isPlaying.value = false;
+    };
+    audio.onerror = () => {
+      isPlaying.value = false;
+      console.error("Audio playback error");
+    };
+    await audio.play();
+    
+  } catch (e) {
+    console.error("Failed to play audio:", e);
+    isPlaying.value = false;
+  }
+};
+
 const flipCard = () => {
   if (!showResult.value && !isFlipped.value) {
     hasPeeked.value = true;
@@ -294,12 +342,19 @@ const flipCard = () => {
   isFlipped.value = !isFlipped.value;
 
   if (!isFlipped.value) {
+    // Front side (English/Native)
     setTimeout(() => {
       const targetInput = inputRefs.value[lastFocusedIndex.value] || inputRefs.value[0];
       if (targetInput) {
         targetInput.focus();
       }
     }, 300);
+  } else {
+    // Back side (German) - Play Audio
+    // The German word is in currentCard.value.original
+    if (currentCard.value?.original) {
+      playAudio(currentCard.value.original);
+    }
   }
 };
 
