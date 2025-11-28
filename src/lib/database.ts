@@ -435,6 +435,28 @@ export async function updateWordReview(id: string, scoreChange: number): Promise
   );
 }
 
+export async function updateWordDetails(id: string, original: string, translation: string, article: string): Promise<void> {
+  const database = await initDatabase();
+  const now = Date.now();
+
+  if (!database) {
+    const word = inMemoryWords.find(w => w.id === id);
+    if (word) {
+      word.original = original;
+      word.translation = translation;
+      word.article = article;
+      word.updatedAt = now;
+      saveToStorage();
+    }
+    return;
+  }
+
+  await database.execute(
+    'UPDATE words SET original = $1, translation = $2, article = $3, updatedAt = $4 WHERE id = $5',
+    [original, translation, article, now, id]
+  );
+}
+
 export async function exportWords(): Promise<string> {
   const words = await getAllWords();
 

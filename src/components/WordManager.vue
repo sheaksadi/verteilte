@@ -7,7 +7,7 @@ import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Search, Plus, Trash2, Volume2, Upload, Globe, Download, RefreshCw, Loader2 } from 'lucide-vue-next';
+import { Search, Plus, Trash2, Volume2, Upload, Globe, Download, RefreshCw, Loader2, Check, X, Pencil } from 'lucide-vue-next';
 import { searchDictionary } from '@/lib/dictionary';
 import ImportDialog from '@/components/ImportDialog.vue';
 import { Progress } from '@/components/ui/progress';
@@ -16,7 +16,7 @@ import { useAudio } from '@/composables/useAudio';
 const { playAudio, deleteAudio, prefetchAudio } = useAudio();
 
 const store = useWordStore();
-const { filteredWords, searchQuery, currentLanguage, languageStatus } = storeToRefs(store);
+const { filteredWords, searchQuery, currentLanguage, languageStatus, sortStrategy } = storeToRefs(store);
 
 import { onMounted } from 'vue';
 
@@ -37,6 +37,39 @@ const newTranslation = ref('');
 const newArticle = ref('');
 const isAdding = ref(false);
 const showImportDialog = ref(false);
+
+// Editing state
+const editingId = ref<string | null>(null);
+const editOriginal = ref('');
+const editTranslation = ref('');
+const editArticle = ref('');
+
+const startEditing = (word: any) => {
+  editingId.value = word.id;
+  editOriginal.value = word.original;
+  editTranslation.value = word.translation;
+  editArticle.value = word.article || 'none';
+};
+
+const cancelEdit = () => {
+  editingId.value = null;
+  editOriginal.value = '';
+  editTranslation.value = '';
+  editArticle.value = '';
+};
+
+const saveEdit = async () => {
+  if (!editingId.value || !editOriginal.value || !editTranslation.value) return;
+  
+  const article = editArticle.value === 'none' ? '' : editArticle.value;
+  await store.updateWordDetails(editingId.value, editOriginal.value, editTranslation.value, article);
+  
+  // Prefetch if changed
+  const textToSpeak = article ? `${article} ${editOriginal.value}` : editOriginal.value;
+  prefetchAudio([textToSpeak]);
+  
+  editingId.value = null;
+};
 
 // Dictionary suggestions
 const suggestions = ref<any[]>([]);
@@ -238,40 +271,86 @@ const formatNextDue = (timestamp: number): string => {
         <Input v-model="searchQuery" placeholder="Search words..." class="pl-9" />
       </div>
 
-      <div class="grid gap-3">
-        <Card v-for="word in filteredWords" :key="word.id" class="group hover:shadow-md transition-all">
-          <CardContent class="p-4 flex items-center justify-between">
-            <div class="flex items-center gap-4">
-              <div class="flex flex-col">
-                <div class="flex items-center gap-2">
-                  <Badge v-if="word.article" variant="secondary" :class="getArticleColor(word.article)">
-                    {{ word.article }}
-                  </Badge>
-                  <span class="font-semibold text-lg">{{ word.original }}</span>
-                  <Button variant="ghost" size="icon" class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity" @click="speak(word)">
-                    <Volume2 class="h-3 w-3" />
-                  </Button>
-                  <Button variant="ghost" size="icon" class="h-6 w-6 opacity-0 group-hover:opacity-100 transition-opacity text-muted-foreground hover:text-destructive" @click="deleteAudioCache(word)" title="Clear Audio Cache">
-                    <Trash2 class="h-3 w-3" />
-                  </Button>
-                </div>
-                <span class="text-muted-foreground">{{ word.translation }}</span>
+      <!-- Sort Options -->
+      <div class="flex justify-end">
+        <Select v-model="sortStrategy">
+          <SelectTrigger class="w-[180px]">
+            <SelectValue placeholder="Sort by" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="newest">Newest First</SelectItem>
+            <SelectItem value="alphabetical">Alphabetical (A-Z)</SelectItem>
+            <SelectItem value="review">Review Due</SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div class="grid gap-2">
+        <Card v-for="word in filteredWords" :key="word.id" class="group hover:shadow-sm transition-all">
+          <CardContent class="p-3">
+            <!-- Edit Mode -->
+            <div v-if="editingId === word.id" class="flex flex-col gap-3">
+              <div class="grid gap-2 sm:grid-cols-3">
+                 <div class="flex gap-2 col-span-2">
+                    <Select v-model="editArticle">
+                      <SelectTrigger class="w-[80px]">
+                        <SelectValue placeholder="Art" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="der">Der</SelectItem>
+                        <SelectItem value="die">Die</SelectItem>
+                        <SelectItem value="das">Das</SelectItem>
+                        <SelectItem value="none">-</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <Input v-model="editOriginal" placeholder="Word" class="flex-1" />
+                 </div>
+                 <Input v-model="editTranslation" placeholder="Translation" />
+              </div>
+              <div class="flex justify-end gap-2">
+                <Button size="sm" variant="ghost" @click="cancelEdit">
+                  <X class="h-4 w-4 mr-1" /> Cancel
+                </Button>
+                <Button size="sm" @click="saveEdit">
+                  <Check class="h-4 w-4 mr-1" /> Save
+                </Button>
               </div>
             </div>
-            
-            <div class="flex items-center gap-4">
-               <div class="flex flex-col items-end gap-0.5">
-                  <div class="text-xs font-medium" 
-                    :class="{ 'text-red-600 dark:text-red-400': word.nextReviewAt <= Date.now(), 'text-muted-foreground': word.nextReviewAt > Date.now() }">
-                    {{ formatNextDue(word.nextReviewAt) }}
+
+            <!-- View Mode -->
+            <div v-else class="flex items-center justify-between">
+              <div class="flex items-center gap-4 flex-1 cursor-pointer" @click="startEditing(word)">
+                <div class="flex flex-col">
+                  <div class="flex items-center gap-2">
+                    <Badge v-if="word.article" variant="secondary" :class="getArticleColor(word.article)" class="px-1.5 py-0 text-xs h-5">
+                      {{ word.article }}
+                    </Badge>
+                    <span class="font-semibold text-base hover:underline decoration-dotted underline-offset-4">{{ word.original }}</span>
+                    <Button variant="ghost" size="icon" class="h-5 w-5 transition-opacity" @click.stop="speak(word)">
+                      <Volume2 class="h-3 w-3" />
+                    </Button>
+                    <Button variant="ghost" size="icon" class="h-5 w-5 transition-opacity text-muted-foreground hover:text-destructive" @click.stop="deleteAudioCache(word)" title="Clear Audio Cache">
+                      <Trash2 class="h-3 w-3" />
+                    </Button>
                   </div>
-                  <div class="text-xs text-muted-foreground">
-                    Lvl {{ word.score }}
-                  </div>
+                  <span class="text-sm text-muted-foreground">{{ word.translation }}</span>
                 </div>
-              <Button variant="ghost" size="icon" class="text-destructive hover:text-destructive hover:bg-destructive/10 opacity-0 group-hover:opacity-100 transition-all" @click="deleteWord(word.id)">
-                <Trash2 class="h-4 w-4" />
-              </Button>
+              </div>
+              
+              <div class="flex items-center gap-3">
+                 <div class="flex flex-col items-end gap-0">
+                    <div class="text-[10px] font-medium" 
+                      :class="{ 'text-red-600 dark:text-red-400': word.nextReviewAt <= Date.now(), 'text-muted-foreground': word.nextReviewAt > Date.now() }">
+                      {{ formatNextDue(word.nextReviewAt) }}
+                    </div>
+                    <div class="text-[10px] text-muted-foreground">
+                      Lvl {{ word.score }}
+                    </div>
+                  </div>
+                <Button variant="ghost" size="icon" class="h-6 w-6 text-destructive hover:text-destructive hover:bg-destructive/10 transition-all" @click.stop="deleteWord(word.id)">
+                  <Trash2 class="h-3 w-3" />
+                </Button>
+              </div>
             </div>
           </CardContent>
         </Card>

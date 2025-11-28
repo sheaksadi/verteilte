@@ -200,6 +200,21 @@ const autoPlayProxy = computed({
             </SwitchRoot>
           </div>
         </div>
+        <div class="flex items-center justify-between">
+          <div class="space-y-0.5">
+            <Label>Double Backspace Interval</Label>
+            <p class="text-sm text-muted-foreground">Time window to detect double press ({{ store.doubleBackspaceInterval }}ms)</p>
+          </div>
+          <div class="flex items-center gap-4 w-[140px]">
+             <Input 
+               type="number" 
+               :model-value="store.doubleBackspaceInterval"
+               @update:model-value="(v) => store.setDoubleBackspaceInterval(Number(v))"
+               class="h-8"
+             />
+             <span class="text-sm text-muted-foreground">ms</span>
+          </div>
+        </div>
       </CardContent>
     </Card>
 

@@ -31,6 +31,7 @@ const expectedAnswer = ref('');
 const justCorrectedIndex = ref<number | null>(null);
 const isTransitioning = ref(false);
 const nextCardTimeout = ref<NodeJS.Timeout | null>(null);
+const lastBackspaceTime = ref(0);
 
 // Current card from due words only
 const currentCard = computed(() => dueWords.value[currentIndex.value]);
@@ -230,13 +231,33 @@ const handleKeydown = (index: number, event: KeyboardEvent) => {
   }
 
   if (event.key === 'Backspace') {
+    // Check for double backspace (within 300ms) to clear all
+    // Ignore repeated events (holding down key)
+    if (!event.repeat) {
+        const now = Date.now();
+        const interval = store.doubleBackspaceInterval || 200;
+        if (now - lastBackspaceTime.value < interval) {
+            event.preventDefault();
+            userInput.value = new Array(answerLength.value).fill('');
+            lastBackspaceTime.value = 0; // Reset
+            
+            nextTick(() => {
+                const firstInput = inputRefs.value[0];
+                if (firstInput) firstInput.focus();
+            });
+            return;
+        }
+        lastBackspaceTime.value = now;
+    }
+
     if (!userInput.value[index] && index > 0) {
       event.preventDefault();
+      // Delete previous value immediately
+      userInput.value[index - 1] = '';
       setTimeout(() => {
         const prevInput = inputRefs.value[index - 1];
         if (prevInput) {
           prevInput.focus();
-          prevInput.select();
         }
       }, 0);
     }
@@ -317,7 +338,8 @@ const flipCard = () => {
   } else {
     // Back side (German)
     if (store.autoPlayAudio && currentCard.value?.original) {
-        playAudio(currentCard.value.original);
+        const text = currentCard.value.article ? `${currentCard.value.article} ${currentCard.value.original}` : currentCard.value.original;
+        playAudio(text);
     }
   }
 };
@@ -495,7 +517,7 @@ watch(currentIndex, () => {
                  :class="getTextSizeClass(currentCard?.original)">
               {{ currentCard?.original }}
               <button 
-                @click.stop="playAudio(currentCard?.original || '')"
+                @click.stop="playAudio(currentCard?.article ? `${currentCard?.article} ${currentCard?.original}` : (currentCard?.original || ''))"
                 class="p-2 rounded-full hover:bg-muted/20 transition-colors focus:outline-none focus:ring-2 focus:ring-primary"
                 :disabled="isPlaying"
                 title="Play Audio"

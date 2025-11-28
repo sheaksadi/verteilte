@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useNow, useStorage } from '@vueuse/core';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, updateWordDetails as dbUpdateWordDetails, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://verteilte.joleif.dev';
@@ -12,6 +12,13 @@ export const useWordStore = defineStore('words', () => {
     const searchQuery = ref('');
     const capturedImage = ref<string | null>(null);
     const aiStrategy = ref<'all' | 'important' | 'no-common'>('important');
+    const aiHistory = useStorage<Array<{
+        id: string;
+        timestamp: number;
+        image: string;
+        words: any[];
+    }>>('aiHistory', []);
+    const sortStrategy = useStorage<'newest' | 'alphabetical' | 'review'>('sortStrategy', 'newest');
     const currentLanguage = useStorage('currentLanguage', 'de');
     const isLoading = ref(true);
     const dictionaryInfo = ref<DictionaryInfo | null>(null);
@@ -54,14 +61,41 @@ export const useWordStore = defineStore('words', () => {
         autoPlayAudio.value = value;
     };
 
+    // Double Backspace Interval
+    const initialDoubleBackspace = localStorage.getItem('settings_doubleBackspaceInterval');
+    const parsedDoubleBackspace = initialDoubleBackspace ? parseInt(initialDoubleBackspace, 10) : 200;
+    const doubleBackspaceInterval = ref(isNaN(parsedDoubleBackspace) ? 200 : parsedDoubleBackspace);
+
+    watch(doubleBackspaceInterval, (newValue) => {
+        localStorage.setItem('settings_doubleBackspaceInterval', String(newValue));
+    });
+
+    const setDoubleBackspaceInterval = (value: number) => {
+        doubleBackspaceInterval.value = value;
+    };
+
     // Getters
     const filteredWords = computed(() => {
-        if (!searchQuery.value.trim()) return words.value;
-        const query = searchQuery.value.toLowerCase();
-        return words.value.filter(word =>
-            word.original.toLowerCase().includes(query) ||
-            word.translation.toLowerCase().includes(query)
-        );
+        let result = words.value;
+
+        if (searchQuery.value.trim()) {
+            const query = searchQuery.value.toLowerCase();
+            result = result.filter(word =>
+                word.original.toLowerCase().includes(query) ||
+                word.translation.toLowerCase().includes(query)
+            );
+        }
+
+        return [...result].sort((a, b) => {
+            if (sortStrategy.value === 'alphabetical') {
+                return a.original.localeCompare(b.original);
+            } else if (sortStrategy.value === 'review') {
+                return a.nextReviewAt - b.nextReviewAt;
+            } else {
+                // newest
+                return b.createdAt - a.createdAt;
+            }
+        });
     });
 
     const now = useNow({ interval: 1000 });
@@ -114,6 +148,12 @@ export const useWordStore = defineStore('words', () => {
 
     const deleteWord = async (id: string) => {
         await dbDeleteWord(id);
+        await loadWords();
+        if (isLoggedIn.value) sync();
+    };
+
+    const updateWordDetails = async (id: string, original: string, translation: string, article: string) => {
+        await dbUpdateWordDetails(id, original, translation, article);
         await loadWords();
         if (isLoggedIn.value) sync();
     };
@@ -494,6 +534,28 @@ export const useWordStore = defineStore('words', () => {
         }
     };
 
+    const saveToHistory = (image: string, words: any[]) => {
+        const id = crypto.randomUUID();
+        const item = {
+            id,
+            timestamp: Date.now(),
+            image,
+            words
+        };
+
+        // Add to beginning
+        aiHistory.value.unshift(item);
+
+        // Limit to 10 items
+        if (aiHistory.value.length > 10) {
+            aiHistory.value = aiHistory.value.slice(0, 10);
+        }
+    };
+
+    const deleteFromHistory = (id: string) => {
+        aiHistory.value = aiHistory.value.filter(item => item.id !== id);
+    };
+
     return {
         words,
         searchQuery,
@@ -511,6 +573,7 @@ export const useWordStore = defineStore('words', () => {
         loadWords,
         addWord,
         deleteWord,
+        updateWordDetails,
         updateReview,
         updateReviewLater,
         startKeepGoingMode,
@@ -528,6 +591,10 @@ export const useWordStore = defineStore('words', () => {
         pingGoogle,
         capturedImage,
         aiStrategy,
+        aiHistory,
+        saveToHistory,
+        deleteFromHistory,
+        sortStrategy,
         currentLanguage,
         downloadProgress,
         downloadStatus,
@@ -537,6 +604,8 @@ export const useWordStore = defineStore('words', () => {
         checkAllDictionaries,
         serverUrl: apiUrl, // Expose apiUrl as serverUrl for compatibility
         autoPlayAudio,
-        setAutoPlayAudio
+        setAutoPlayAudio,
+        doubleBackspaceInterval,
+        setDoubleBackspaceInterval
     };
 });
