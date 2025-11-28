@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
 import { impactFeedback, vibrate } from '@tauri-apps/plugin-haptics';
-import { Volume2, Loader2 } from 'lucide-vue-next';
+import { Volume2, Loader2, ArrowLeft } from 'lucide-vue-next';
 import { useAudio } from '@/composables/useAudio';
 
 const props = defineProps<{
@@ -424,6 +424,14 @@ watch(currentIndex, () => {
 
   <!-- Flashcard -->
   <div class="flex-1 flex flex-col max-w-md mx-auto w-full gap-2">
+    
+    <!-- Back button for No Score Mode -->
+    <div v-if="store.isKeepGoingMode || store.isReviewFailedMode" class="flex justify-start px-1">
+      <Button variant="ghost" size="sm" @click="store.stopReviewing" class="text-muted-foreground hover:text-foreground h-8 px-2">
+        <ArrowLeft class="w-4 h-4 mr-1" /> Back to Summary
+      </Button>
+    </div>
+
     <div class="relative w-full perspective-1000">
       <Card
         class="w-full grid grid-cols-1 transition-transform duration-700 transform-style-preserve-3d cursor-pointer"
@@ -434,7 +442,7 @@ watch(currentIndex, () => {
           <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
             <!-- Score and Last Reviewed in corners -->
             <div class="absolute top-2 left-2 text-xs text-muted-foreground">
-              <span v-if="store.isKeepGoingMode" class="text-amber-600 font-medium flex items-center gap-1">
+              <span v-if="store.isKeepGoingMode || store.isReviewFailedMode" class="text-amber-600 font-medium flex items-center gap-1">
                 <span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
                 No Score Mode
               </span>
@@ -497,7 +505,7 @@ watch(currentIndex, () => {
           <CardContent class="p-8 text-center flex-1 flex flex-col justify-center relative">
             <!-- Score and Last Reviewed in corners -->
             <div class="absolute top-2 left-2 text-xs text-muted-foreground">
-              <span v-if="store.isKeepGoingMode" class="text-amber-600 font-medium flex items-center gap-1">
+              <span v-if="store.isKeepGoingMode || store.isReviewFailedMode" class="text-amber-600 font-medium flex items-center gap-1">
                 <span class="w-2 h-2 rounded-full bg-amber-600 animate-pulse"></span>
                 No Score Mode
               </span>

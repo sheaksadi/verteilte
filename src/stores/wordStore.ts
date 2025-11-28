@@ -74,6 +74,23 @@ export const useWordStore = defineStore('words', () => {
         doubleBackspaceInterval.value = value;
     };
 
+    // Learning Settings
+    const initialLearningLimit = localStorage.getItem('settings_learningLimit');
+    const parsedLearningLimit = initialLearningLimit ? parseInt(initialLearningLimit, 10) : 10;
+    const learningLimit = ref(isNaN(parsedLearningLimit) ? 10 : parsedLearningLimit);
+
+    watch(learningLimit, (newValue) => {
+        localStorage.setItem('settings_learningLimit', String(newValue));
+    });
+
+    const setLearningLimit = (value: number) => {
+        learningLimit.value = value;
+    };
+
+    // Failed words tracking
+    const failedSessionWords = ref<Word[]>([]);
+    const isReviewFailedMode = ref(false);
+
     // Getters
     const filteredWords = computed(() => {
         let result = words.value;
@@ -104,7 +121,30 @@ export const useWordStore = defineStore('words', () => {
         if (isKeepGoingMode.value) {
             return keepGoingWords.value;
         }
-        return words.value.filter(word => word.nextReviewAt <= now.value.getTime());
+        if (isReviewFailedMode.value) {
+            return failedSessionWords.value;
+        }
+
+        const currentTime = now.value.getTime();
+
+        // 1. Identify review words (score >= 3) that are due
+        const reviewWords = words.value.filter(w => w.score >= 3 && w.nextReviewAt <= currentTime);
+
+        // 2. Identify active learning words (score < 3)
+        // Sort by createdAt to maintain a stable "active set"
+        // We take the top N words with score < 3, regardless of whether they are due or not, 
+        // to define the "active learning pool".
+        // Then we filter this pool for words that are actually due.
+        const potentialLearningWords = words.value
+            .filter(w => w.score < 3)
+            .sort((a, b) => a.createdAt - b.createdAt); // Oldest first
+
+        const activeLearningPool = potentialLearningWords.slice(0, learningLimit.value);
+
+        const dueLearningWords = activeLearningPool.filter(w => w.nextReviewAt <= currentTime);
+
+        // Combine them
+        return [...reviewWords, ...dueLearningWords].sort((a, b) => a.nextReviewAt - b.nextReviewAt);
     });
 
     const isLoggedIn = computed(() => !!token.value);
@@ -171,6 +211,27 @@ export const useWordStore = defineStore('words', () => {
             return;
         }
 
+        if (isReviewFailedMode.value) {
+            if (scoreChange > 0) {
+                failedSessionWords.value = failedSessionWords.value.filter(w => w.id !== id);
+                if (failedSessionWords.value.length === 0) {
+                    isReviewFailedMode.value = false;
+                }
+            }
+            return;
+        }
+
+        // Track failures
+        if (scoreChange < 0) {
+            const word = words.value.find(w => w.id === id);
+            if (word) {
+                // Check if already in failed list
+                if (!failedSessionWords.value.some(w => w.id === id)) {
+                    failedSessionWords.value.push(word);
+                }
+            }
+        }
+
         await updateWordReview(id, scoreChange);
         // The component should call loadWords after animation
         // We can trigger sync in background
@@ -184,6 +245,16 @@ export const useWordStore = defineStore('words', () => {
                 const word = keepGoingWords.value[wordIndex];
                 keepGoingWords.value.splice(wordIndex, 1);
                 keepGoingWords.value.push(word);
+            }
+            return;
+        }
+
+        if (isReviewFailedMode.value) {
+            const wordIndex = failedSessionWords.value.findIndex(w => w.id === id);
+            if (wordIndex !== -1) {
+                const word = failedSessionWords.value[wordIndex];
+                failedSessionWords.value.splice(wordIndex, 1);
+                failedSessionWords.value.push(word);
             }
             return;
         }
@@ -229,6 +300,22 @@ export const useWordStore = defineStore('words', () => {
         // Deep copy to avoid affecting the main list state
         keepGoingWords.value = JSON.parse(JSON.stringify(futureWords));
         isKeepGoingMode.value = true;
+    };
+
+    const startReviewFailedMode = () => {
+        if (failedSessionWords.value.length > 0) {
+            isReviewFailedMode.value = true;
+        }
+    };
+
+    const stopReviewing = () => {
+        isKeepGoingMode.value = false;
+        isReviewFailedMode.value = false;
+        keepGoingWords.value = [];
+        // We don't clear failedSessionWords here because we might want to review them later?
+        // But if we exit "Review Failed Mode", we probably just want to go back to "All Caught Up".
+        // The failedSessionWords should persist until they are reviewed or a new session starts?
+        // Actually, if we stop reviewing failed words, we probably just leave them as is.
     };
 
     const resetWords = async () => {
@@ -606,6 +693,12 @@ export const useWordStore = defineStore('words', () => {
         autoPlayAudio,
         setAutoPlayAudio,
         doubleBackspaceInterval,
-        setDoubleBackspaceInterval
+        setDoubleBackspaceInterval,
+        learningLimit,
+        setLearningLimit,
+        isReviewFailedMode,
+        failedSessionWords,
+        startReviewFailedMode,
+        stopReviewing
     };
 });

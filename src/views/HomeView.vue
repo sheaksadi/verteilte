@@ -25,6 +25,14 @@ const cardHeight = ref(25);
 // For simplicity, let's assume DebugInfo is always available if enabled in settings?
 // The user asked to "Move Debug Mode toggle" to settings.
 // So `Settings.vue` has a toggle. We need to share that state.
+// Expose toggleDebug to be called from parent or via event bus if needed
+// For now, let's just have a local toggle or maybe Settings controls it?
+// In the previous App.vue, Settings toggled it via emit.
+// Now Settings is a separate route.
+// Maybe we can use a query param ?debug=true or just a simple store state.
+// For simplicity, let's assume DebugInfo is always available if enabled in settings?
+// The user asked to "Move Debug Mode toggle" to settings.
+// So `Settings.vue` has a toggle. We need to share that state.
 // I'll add `showDebug` to the `wordStore` or a new `uiStore`.
 // Since I'm already using `wordStore` extensively, I'll add it there for now to avoid creating a new file just for one boolean.
 // Actually, `wordStore` already has `debugInfo`. I can add `isDebugMode` there.
@@ -61,6 +69,10 @@ const cardHeight = ref(25);
           </p>
           
           <div class="flex flex-col gap-3 w-full max-w-xs">
+            <Button v-if="store.failedSessionWords.length > 0" @click="store.startReviewFailedMode()" class="w-full bg-red-600 hover:bg-red-700 text-white shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.02]">
+               Review Failed Cards ({{ store.failedSessionWords.length }})
+            </Button>
+
             <Button @click="store.startKeepGoingMode()" class="w-full bg-purple-600 hover:bg-purple-700 text-white shadow-md transition-all duration-300 hover:shadow-lg hover:scale-[1.02]">
               <Play class="h-4 w-4 mr-2 fill-current" /> Keep Going (Review Next 5)
             </Button>
@@ -74,7 +86,7 @@ const cardHeight = ref(25);
     </div>
 
     <!-- Flashcard content -->
-    <div v-else class="flex-1 overflow-hidden flex flex-col justify-center">
+    <div v-else class="flex-1 overflow-hidden flex flex-col justify-center relative">
       <FlashcardView 
         :isDarkMode="true"
         :cardHeight="cardHeight"

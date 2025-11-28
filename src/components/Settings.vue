@@ -289,6 +289,24 @@ const autoPlayProxy = computed({
         <CardDescription>Customize the spaced repetition intervals</CardDescription>
       </CardHeader>
       <CardContent class="space-y-6">
+        <!-- Learning Limit -->
+        <div class="space-y-3 pb-4 border-b">
+          <div class="space-y-0.5">
+            <Label>Active Learning Limit</Label>
+            <p class="text-sm text-muted-foreground">Maximum number of learning cards (Level < 3) to show at once</p>
+          </div>
+          <div class="flex items-center gap-4 w-[140px]">
+             <Input 
+               type="number" 
+               :model-value="store.learningLimit"
+               @update:model-value="(v) => store.setLearningLimit(Number(v))"
+               class="h-8"
+               min="1"
+             />
+             <span class="text-sm text-muted-foreground">cards</span>
+          </div>
+        </div>
+
         <!-- Time Buckets -->
         <div class="space-y-4">
           <div class="flex items-center justify-between">

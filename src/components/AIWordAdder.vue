@@ -192,8 +192,8 @@ const analyzeImage = async () => {
 
           detectedWords.value = processedWords;
           
-          // Auto-save removed
-          // store.addToHistory(imagePreview.value, processedWords);
+          // Auto-save
+          store.saveToHistory(imagePreview.value, processedWords);
         }
       } catch (e) {
         console.error('Failed to parse AI response:', e);
@@ -372,46 +372,51 @@ const formatDate = (ts: number) => {
       <!-- Detected Words -->
       <Card v-if="detectedWords.length > 0">
         <CardContent class="p-6">
-          <div class="flex items-center justify-between mb-4">
+          <div class="flex flex-col gap-3 mb-4">
             <h3 class="font-semibold flex items-center gap-2">
               <Sparkles class="h-4 w-4 text-primary" />
               Detected Words ({{ filteredDetectedWords.length }})
             </h3>
             
-            <!-- Strategy Selection -->
-            <div class="flex items-center gap-2">
-                <select v-model="aiStrategy" class="text-xs border rounded px-2 py-1 bg-background">
-                    <option value="all">All Words</option>
-                    <option value="important">Most Important</option>
-                    <option value="no-common">No Common</option>
-                </select>
-                
-                <!-- Sort Toggle -->
-                <Button variant="ghost" size="icon" class="h-7 w-7" 
-                  :class="{ 'bg-accent': sortDetected === 'alphabetical' }"
-                  @click="sortDetected = sortDetected === 'alphabetical' ? 'original' : 'alphabetical'" 
-                  title="Sort Alphabetically">
-                  <ArrowDownAZ class="h-4 w-4" />
-                </Button>
+            <div class="flex flex-wrap items-center justify-between gap-2">
+                <!-- Strategy Selection & Tools -->
+                <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                    <select v-model="aiStrategy" class="text-xs border rounded px-2 py-1 bg-background flex-grow sm:flex-grow-0 h-8">
+                        <option value="all">All Words</option>
+                        <option value="important">Most Important</option>
+                        <option value="no-common">No Common</option>
+                    </select>
+                    
+                    <div class="flex items-center gap-1">
+                        <!-- Sort Toggle -->
+                        <Button variant="ghost" size="icon" class="h-8 w-8" 
+                          :class="{ 'bg-accent': sortDetected === 'alphabetical' }"
+                          @click="sortDetected = sortDetected === 'alphabetical' ? 'original' : 'alphabetical'" 
+                          title="Sort Alphabetically">
+                          <ArrowDownAZ class="h-4 w-4" />
+                        </Button>
 
-                <!-- View Mode Toggle -->
-                <Button variant="ghost" size="icon" class="h-7 w-7"
-                  @click="viewMode = viewMode === 'normal' ? 'compact' : 'normal'"
-                  title="Toggle View Mode">
-                  <component :is="viewMode === 'normal' ? LayoutGrid : List" class="h-4 w-4" />
-                </Button>
+                        <!-- View Mode Toggle -->
+                        <Button variant="ghost" size="icon" class="h-8 w-8"
+                          @click="viewMode = viewMode === 'normal' ? 'compact' : 'normal'"
+                          title="Toggle View Mode">
+                          <component :is="viewMode === 'normal' ? LayoutGrid : List" class="h-4 w-4" />
+                        </Button>
 
-                <!-- Save Button -->
-                <Button variant="ghost" size="icon" class="h-7 w-7 text-primary hover:text-primary hover:bg-primary/10"
-                  @click="saveAnalysis"
-                  title="Save to History">
-                  <Save class="h-4 w-4" />
-                </Button>
-            </div>
-            <div class="flex gap-2 text-sm ml-auto">
-              <button @click="selectAllWords" class="text-primary hover:underline">Select All</button>
-              <span class="text-muted-foreground">|</span>
-              <button @click="deselectAllWords" class="text-muted-foreground hover:text-foreground">None</button>
+                        <!-- Save Button -->
+                        <Button variant="ghost" size="icon" class="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
+                          @click="saveAnalysis"
+                          title="Save to History">
+                          <Save class="h-4 w-4" />
+                        </Button>
+                    </div>
+                </div>
+
+                <div class="flex gap-2 text-sm ml-auto sm:ml-0">
+                  <button @click="selectAllWords" class="text-primary hover:underline">Select All</button>
+                  <span class="text-muted-foreground">|</span>
+                  <button @click="deselectAllWords" class="text-muted-foreground hover:text-foreground">None</button>
+                </div>
             </div>
           </div>
           
