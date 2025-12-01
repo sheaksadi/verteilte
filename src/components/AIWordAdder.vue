@@ -3,7 +3,7 @@ import { ref, computed } from 'vue';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { Camera, Image as ImageIcon, Sparkles, Check, X, Plus, Loader2, RotateCw, History, Clock, ArrowDownAZ, LayoutGrid, List, Trash2, Save } from 'lucide-vue-next';
+import { Camera, Image as ImageIcon, Sparkles, Check, X, Plus, Loader2, RotateCw, History, Clock, ArrowDownAZ, LayoutGrid, List, Trash2 } from 'lucide-vue-next';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
@@ -247,18 +247,7 @@ const addSelectedWords = async () => {
   alert(`Added ${selected.length} words!`);
 };
 
-const saveAnalysis = () => {
-  console.log('Saving analysis...', imagePreview.value ? 'has image' : 'no image', detectedWords.value.length);
-  if (!imagePreview.value || detectedWords.value.length === 0) return;
-  try {
-    store.saveToHistory(imagePreview.value, detectedWords.value);
-    console.log('Saved to history successfully');
-    alert('Analysis saved to history!');
-  } catch (e) {
-    console.error('Save failed:', e);
-    alert('Failed to save analysis.');
-  }
-};
+
 
 const restoreHistoryItem = (item: any) => {
   imagePreview.value = item.image;
@@ -403,12 +392,6 @@ const formatDate = (ts: number) => {
                           <component :is="viewMode === 'normal' ? LayoutGrid : List" class="h-4 w-4" />
                         </Button>
 
-                        <!-- Save Button -->
-                        <Button variant="ghost" size="icon" class="h-8 w-8 text-primary hover:text-primary hover:bg-primary/10"
-                          @click="saveAnalysis"
-                          title="Save to History">
-                          <Save class="h-4 w-4" />
-                        </Button>
                     </div>
                 </div>
 

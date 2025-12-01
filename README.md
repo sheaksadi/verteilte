@@ -2,7 +2,7 @@
 
 Verteilte (German for "Distributed") is a modern, cross-platform spaced-repetition flashcard application designed to help you master German language efficiently. Built with **Tauri**, **Vue 3**, and **TypeScript**, it offers a native-like experience on both desktop and mobile devices.
 
-## ✨ Features
+## Features
 
 *   **Spaced Repetition System (SRS)**: Optimizes learning by scheduling reviews at the most effective intervals.
 *   **Interactive Flashcards**: Type your answers to reinforce memory, with immediate feedback.
@@ -10,7 +10,7 @@ Verteilte (German for "Distributed") is a modern, cross-platform spaced-repetiti
 *   **Cross-Platform**: Runs on Linux and Android Others to be tested soon.
 *   **Backend Syncing**: Syncs your progress across devices using a dedicated Node.js + PostgreSQL backend.
 
-## 🛠️ Tech Stack
+## Tech Stack
 
 ### Frontend (Client)
 *   **Framework**: [Vue 3](https://vuejs.org/)
@@ -26,7 +26,7 @@ Verteilte (German for "Distributed") is a modern, cross-platform spaced-repetiti
 *   **Database**: [PostgreSQL](https://www.postgresql.org/)
 *   **Authentication**: JWT & Bcrypt
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -41,7 +41,7 @@ Ensure you have the following installed on your system:
 
 1.  **Clone the repository:**
     ```bash
-    git clone <repository-url>
+    git clone https://github.com/sheaksadi/verteilte.git
     cd verteilte
     ```
 
@@ -57,7 +57,7 @@ Ensure you have the following installed on your system:
     cd ..
     ```
 
-## 💻 Development
+## Development
 
 The easiest way to start the development environment is using the provided helper script. This script spins up the Postgres database via Docker, starts the backend server, and launches the Tauri frontend.
 
@@ -88,30 +88,18 @@ If you prefer to run services individually:
     npm run tauri dev
     ```
 
-## 📂 Project Structure
 
-*   `src/`: Main Vue.js frontend application code.
-    *   `components/`: Reusable UI components.
-    *   `stores/`: Pinia state stores (e.g., `wordStore.ts`).
-    *   `lib/`: Utility functions and database helpers.
-*   `src-tauri/`: Rust code for the Tauri application shell.
-*   `server/`: Node.js backend API and database schema.
-*   `scripts/`: Utility scripts (e.g., dictionary builders).
-
-## 📱 Mobile Development (Android)
+## Mobile Development (Android)
 
 To run on an Android emulator or device:
 
 1.  Ensure you have the Android SDK and NDK configured.
 2.  Run the Tauri Android dev command:
     ```bash
-    npm run tauri android dev
+    npm run tauri android build
     ```
 
-## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request.
+## AI Disclaimer
 
-## 🤖 AI Disclaimer
-
-This project was developed with the heavy assistance of agentic coding models. While we strive for high-quality code, please be aware that some implementation details may reflect patterns common to AI-generated code.
+This project was developed with the heavy assistance of agentic coding models.
