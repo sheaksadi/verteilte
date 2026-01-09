@@ -18,14 +18,21 @@ interface SyncWord {
     deletedAt: number | null;
 }
 
+interface SyncPracticeStats {
+    date: string;
+    count: number;
+    updatedAt: number;
+}
+
 interface SyncRequest {
     lastSyncTimestamp: number;
     changes: SyncWord[];
+    practiceStats?: SyncPracticeStats[];
 }
 
 router.post('/', authenticateToken, async (req: Request, res: Response) => {
     const user = (req as any).user;
-    const { lastSyncTimestamp, changes } = req.body as SyncRequest;
+    const { lastSyncTimestamp, changes, practiceStats } = req.body as SyncRequest;
 
     if (typeof lastSyncTimestamp !== 'number' || !Array.isArray(changes)) {
         return res.status(400).json({ error: 'Invalid sync request format' });
@@ -100,11 +107,40 @@ router.post('/', authenticateToken, async (req: Request, res: Response) => {
             deletedAt: row.deleted_at ? parseInt(row.deleted_at) : null
         }));
 
+        // 3. Apply client practice stats
+        if (practiceStats && Array.isArray(practiceStats)) {
+            for (const stat of practiceStats) {
+                // Upsert with "higher count wins" strategy
+                await client.query(
+                    `INSERT INTO practice_stats (user_id, date, count, updated_at)
+                     VALUES ($1, $2, $3, $4)
+                     ON CONFLICT (user_id, date) DO UPDATE SET
+                       count = CASE WHEN $3 > practice_stats.count THEN $3 ELSE practice_stats.count END,
+                       updated_at = CASE WHEN $4 > practice_stats.updated_at THEN $4 ELSE practice_stats.updated_at END`,
+                    [user.id, stat.date, stat.count, stat.updatedAt]
+                );
+            }
+        }
+
+        // 4. Fetch server practice stats changes
+        const statsResult = await client.query(
+            `SELECT date, count, updated_at FROM practice_stats
+             WHERE user_id = $1 AND updated_at > $2 AND updated_at <= $3`,
+            [user.id, lastSyncTimestamp, now]
+        );
+
+        const serverPracticeStats = statsResult.rows.map(row => ({
+            date: row.date instanceof Date ? row.date.toISOString().split('T')[0] : row.date,
+            count: row.count,
+            updatedAt: parseInt(row.updated_at)
+        }));
+
         await client.query('COMMIT');
 
         res.json({
             timestamp: now,
-            changes: serverChanges
+            changes: serverChanges,
+            practiceStats: serverPracticeStats
         });
 
     } catch (error) {

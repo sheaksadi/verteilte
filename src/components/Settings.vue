@@ -9,16 +9,17 @@ import { Switch } from '@/components/ui/switch';
 import { SwitchRoot, SwitchThumb } from 'reka-ui';
 import { useWordStore } from '@/stores/wordStore';
 import { storeToRefs } from 'pinia';
-import { Moon, Sun, Save, RotateCcw, Download, Upload, RefreshCw, LogOut, Trash2, Key, Database, Brain, Palette, Bug } from 'lucide-vue-next';
+import { Moon, Sun, Save, RotateCcw, Download, Upload, RefreshCw, LogOut, Trash2, Key, Database, Brain, Palette, Bug, Activity } from 'lucide-vue-next';
 import type { AlgorithmSettings } from '@/lib/database';
 import { DEFAULT_ALGORITHM_SETTINGS } from '@/lib/database';
 import ImportDialog from '@/components/ImportDialog.vue';
 import Auth from '@/components/Auth.vue';
+import PracticeChart from '@/components/PracticeChart.vue';
 
 const emit = defineEmits(['close', 'toggle-debug']);
 
 const store = useWordStore();
-const { algorithmSettings, isLoggedIn, user, isSyncing, debugInfo } = storeToRefs(store);
+const { algorithmSettings, isLoggedIn, user, isSyncing, debugInfo, practiceStats } = storeToRefs(store);
 
 const showImportDialog = ref(false);
 const showAuthDialog = ref(false);
@@ -147,6 +148,7 @@ const handleLogout = () => {
 
 onMounted(() => {
   initLocalSettings();
+  store.loadPracticeStats();
   console.log('[Settings] Mounted. Store autoPlayAudio:', store.autoPlayAudio);
 });
 
@@ -167,6 +169,17 @@ const autoPlayProxy = computed({
       <h1 class="text-3xl font-bold text-primary tracking-tight">Settings</h1>
       <p class="text-muted-foreground mt-1">Manage your preferences and application data</p>
     </div>
+
+    <!-- Practice Activity -->
+    <Card>
+      <CardHeader>
+        <CardTitle class="flex items-center gap-2"><Activity class="h-5 w-5" /> Practice Activity</CardTitle>
+        <CardDescription>Your word practice history over the last year</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <PracticeChart :stats="practiceStats" />
+      </CardContent>
+    </Card>
 
     <!-- Appearance -->
     <Card>

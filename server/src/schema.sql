@@ -25,3 +25,13 @@ CREATE TABLE IF NOT EXISTS words (
 CREATE INDEX IF NOT EXISTS idx_words_user_id ON words(user_id);
 CREATE INDEX IF NOT EXISTS idx_words_updated_at ON words(updated_at);
 
+CREATE TABLE IF NOT EXISTS practice_stats (
+  user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  date DATE NOT NULL,
+  count INTEGER DEFAULT 0,
+  updated_at BIGINT NOT NULL,
+  PRIMARY KEY (user_id, date)
+);
+
+CREATE INDEX IF NOT EXISTS idx_practice_stats_user_id ON practice_stats(user_id);
+CREATE INDEX IF NOT EXISTS idx_practice_stats_updated_at ON practice_stats(updated_at);

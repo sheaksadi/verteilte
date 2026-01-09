@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia';
 import { ref, computed, watch } from 'vue';
 import { useNow, useStorage } from '@vueuse/core';
-import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, updateWordDetails as dbUpdateWordDetails, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, type Word, type AlgorithmSettings } from '@/lib/database';
+import { getAllWords, addWord as dbAddWord, deleteWord as dbDeleteWord, updateWordReview, updateWordDetails as dbUpdateWordDetails, resetAllWords, getWordsForSync, upsertWords, getAlgorithmSettings, saveAlgorithmSettings as dbSaveAlgorithmSettings, getPracticeStats as dbGetPracticeStats, getPracticeStatsForSync, upsertPracticeStats, recordPractice as dbRecordPractice, type Word, type AlgorithmSettings, type PracticeStats } from '@/lib/database';
 import { initializeDictionary, searchDictionary, searchByMeaning, type DictionaryEntry, type DictionaryInfo } from '@/lib/dictionary';
 
 const API_URL = import.meta.env.VITE_API_URL || 'https://verteilte.joleif.dev';
@@ -32,6 +32,7 @@ export const useWordStore = defineStore('words', () => {
     });
 
     const algorithmSettings = ref<AlgorithmSettings | null>(null);
+    const practiceStats = ref<PracticeStats[]>([]);
 
     const isKeepGoingMode = ref(false);
     const keepGoingWords = ref<Word[]>([]);
@@ -233,6 +234,14 @@ export const useWordStore = defineStore('words', () => {
         }
 
         await updateWordReview(id, scoreChange);
+
+        // Record practice for stats (only on correct answers / score increase)
+        if (scoreChange > 0) {
+            await dbRecordPractice();
+            // Reload practice stats
+            practiceStats.value = await dbGetPracticeStats();
+        }
+
         // The component should call loadWords after animation
         // We can trigger sync in background
         if (isLoggedIn.value) sync();
@@ -534,7 +543,8 @@ export const useWordStore = defineStore('words', () => {
                 },
                 body: JSON.stringify({
                     lastSyncTimestamp: lastSyncTimestamp.value,
-                    changes: localChanges
+                    changes: localChanges,
+                    practiceStats: await getPracticeStatsForSync(lastSyncTimestamp.value)
                 })
             });
 
@@ -554,7 +564,13 @@ export const useWordStore = defineStore('words', () => {
                 await loadWords();
             }
 
-            // 4. Update timestamp
+            // 4. Apply practice stats changes
+            if (data.practiceStats && data.practiceStats.length > 0) {
+                await upsertPracticeStats(data.practiceStats);
+                practiceStats.value = await dbGetPracticeStats();
+            }
+
+            // 5. Update timestamp
             lastSyncTimestamp.value = data.timestamp;
 
         } catch (e) {
@@ -571,6 +587,10 @@ export const useWordStore = defineStore('words', () => {
 
     const loadSettings = async () => {
         algorithmSettings.value = await getAlgorithmSettings();
+    };
+
+    const loadPracticeStats = async () => {
+        practiceStats.value = await dbGetPracticeStats();
     };
 
     const checkConnection = async () => {
@@ -699,6 +719,8 @@ export const useWordStore = defineStore('words', () => {
         isReviewFailedMode,
         failedSessionWords,
         startReviewFailedMode,
-        stopReviewing
+        stopReviewing,
+        practiceStats,
+        loadPracticeStats
     };
 });

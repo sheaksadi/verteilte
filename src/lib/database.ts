@@ -27,6 +27,12 @@ export interface AlgorithmSettings {
   maxScoreBehavior: 'cap' | 'archive'; // 'cap' = stay at max, 'archive' = stop reviewing
 }
 
+export interface PracticeStats {
+  date: string;      // "YYYY-MM-DD"
+  count: number;
+  updatedAt: number;
+}
+
 export const DEFAULT_ALGORITHM_SETTINGS: AlgorithmSettings = {
   intervals: {
     0: 10 * 60 * 1000,             // 10 mins
@@ -52,6 +58,9 @@ export const DEFAULT_ALGORITHM_SETTINGS: AlgorithmSettings = {
 export const SCORE_INTERVALS = DEFAULT_ALGORITHM_SETTINGS.intervals;
 
 let inMemorySettings: AlgorithmSettings = { ...DEFAULT_ALGORITHM_SETTINGS };
+let inMemoryPracticeStats: PracticeStats[] = [];
+
+const PRACTICE_STATS_KEY = 'verteilte_practice_stats';
 
 function saveSettingsToStorage() {
   if (typeof localStorage !== 'undefined') {
@@ -76,6 +85,25 @@ function loadSettingsFromStorage() {
   }
 }
 
+function savePracticeStatsToStorage() {
+  if (typeof localStorage !== 'undefined') {
+    localStorage.setItem(PRACTICE_STATS_KEY, JSON.stringify(inMemoryPracticeStats));
+  }
+}
+
+function loadPracticeStatsFromStorage() {
+  if (typeof localStorage !== 'undefined') {
+    const stored = localStorage.getItem(PRACTICE_STATS_KEY);
+    if (stored) {
+      try {
+        inMemoryPracticeStats = JSON.parse(stored);
+      } catch (e) {
+        console.error('Failed to parse stored practice stats', e);
+      }
+    }
+  }
+}
+
 function isTauri(): boolean {
   return typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 }
@@ -90,6 +118,7 @@ export async function initDatabase(): Promise<Database | null> {
       loadFromStorage();
     }
     loadSettingsFromStorage();
+    loadPracticeStatsFromStorage();
     return null;
   }
 
@@ -212,6 +241,20 @@ export async function initDatabase(): Promise<Database | null> {
         }
       } catch (e) {
         console.error('Failed to check/add language column:', e);
+      }
+
+      // Create practice_stats table if not exists
+      try {
+        await db.execute(`
+          CREATE TABLE IF NOT EXISTS practice_stats (
+            date TEXT PRIMARY KEY,
+            count INTEGER DEFAULT 0,
+            updatedAt INTEGER NOT NULL
+          )
+        `);
+        console.log('practice_stats table ready');
+      } catch (e) {
+        console.error('Failed to create practice_stats table:', e);
       }
 
       console.log('Database loaded successfully');
@@ -555,4 +598,94 @@ export async function resetAllWords(): Promise<void> {
     'UPDATE words SET score = 0, lastReviewedAt = $1, nextReviewAt = $1, updatedAt = $1',
     [now]
   );
+}
+
+// ==================== Practice Stats Functions ====================
+
+function getTodayDateString(): string {
+  const now = new Date();
+  return now.toISOString().split('T')[0]; // "YYYY-MM-DD"
+}
+
+export async function recordPractice(): Promise<void> {
+  const database = await initDatabase();
+  const today = getTodayDateString();
+  const now = Date.now();
+
+  if (!database) {
+    // In-memory / localStorage mode
+    const existing = inMemoryPracticeStats.find(s => s.date === today);
+    if (existing) {
+      existing.count += 1;
+      existing.updatedAt = now;
+    } else {
+      inMemoryPracticeStats.push({ date: today, count: 1, updatedAt: now });
+    }
+    savePracticeStatsToStorage();
+    return;
+  }
+
+  // SQLite mode - upsert
+  await database.execute(
+    `INSERT INTO practice_stats (date, count, updatedAt) VALUES ($1, 1, $2)
+     ON CONFLICT(date) DO UPDATE SET count = count + 1, updatedAt = $2`,
+    [today, now]
+  );
+}
+
+export async function getPracticeStats(): Promise<PracticeStats[]> {
+  const database = await initDatabase();
+
+  if (!database) {
+    return [...inMemoryPracticeStats].sort((a, b) => a.date.localeCompare(b.date));
+  }
+
+  const result = await database.select<PracticeStats[]>(
+    'SELECT date, count, updatedAt FROM practice_stats ORDER BY date ASC'
+  );
+  return result;
+}
+
+export async function getPracticeStatsForSync(lastSync: number): Promise<PracticeStats[]> {
+  const database = await initDatabase();
+
+  if (!database) {
+    return inMemoryPracticeStats.filter(s => s.updatedAt > lastSync);
+  }
+
+  return await database.select<PracticeStats[]>(
+    'SELECT date, count, updatedAt FROM practice_stats WHERE updatedAt > $1',
+    [lastSync]
+  );
+}
+
+export async function upsertPracticeStats(stats: PracticeStats[]): Promise<void> {
+  const database = await initDatabase();
+
+  if (!database) {
+    for (const s of stats) {
+      const index = inMemoryPracticeStats.findIndex(existing => existing.date === s.date);
+      if (index >= 0) {
+        // Server wins if count is higher or updatedAt is newer
+        if (s.count > inMemoryPracticeStats[index].count || s.updatedAt > inMemoryPracticeStats[index].updatedAt) {
+          inMemoryPracticeStats[index] = s;
+        }
+      } else {
+        inMemoryPracticeStats.push(s);
+      }
+    }
+    savePracticeStatsToStorage();
+    return;
+  }
+
+  for (const s of stats) {
+    // Upsert with "higher count wins" strategy
+    await database.execute(
+      `INSERT INTO practice_stats (date, count, updatedAt) VALUES ($1, $2, $3)
+       ON CONFLICT(date) DO UPDATE SET 
+       count = CASE WHEN $2 > practice_stats.count THEN $2 ELSE practice_stats.count END,
+       updatedAt = CASE WHEN $3 > practice_stats.updatedAt THEN $3 ELSE practice_stats.updatedAt END`,
+      [s.date, s.count, s.updatedAt]
+    );
+  }
 }
